@@ -276,7 +276,17 @@ function cycleLabel(days){
   return presets[days] ? presets[days] : days+'일마다';
 }
 
-function isAdmin(){ return !state.cloudReady || !!state.user; }
+function isAdmin(){ return !state.cloudReady || (!!state.user && !state.user.isAnonymous); }
+
+// 로그인 없이도 점검일지 작성 등 최소한의 쓰기 권한이 필요한 현장 작업자를 위해,
+// 관리자 로그인 상태가 아니면 자동으로 '익명 인증' 세션을 만든다.
+// (Firestore 규칙에서 request.auth != null 조건을 만족시키되, isAdmin()에서는 관리자로 취급하지 않는다)
+async function ensureAnonymousAuth(){
+  if(!state.cloudReady) return;
+  if(firebase.auth().currentUser) return;
+  try{ await firebase.auth().signInAnonymously(); }
+  catch(e){ console.error('익명 인증 실패', e); }
+}
  
 /* ---------------- 저장소 (클라우드 연결 시 Firestore, 아니면 기기별 localStorage) ---------------- */
 async function loadBusinesses(){
@@ -410,7 +420,11 @@ function openLoginModal(){
   };
 }
 async function doLogout(){
-  try{ await firebase.auth().signOut(); showToast('로그아웃되었습니다.'); }
+  try{
+    await firebase.auth().signOut();
+    await ensureAnonymousAuth();
+    showToast('로그아웃되었습니다.');
+  }
   catch(e){ showToast('로그아웃 중 오류가 발생했습니다.'); }
 }
 
@@ -462,7 +476,7 @@ function headerBlock(eyebrow, title, showBack, rightHtml){
  
 /* ---------------- 홈: 사업체 목록 ---------------- */
 function renderHome(){
-  const isAdmin = !state.cloudReady || !!state.user; // 로컬 모드는 항상 전체 권한, 클라우드 모드는 로그인해야 관리 가능
+  const isAdmin = !state.cloudReady || (!!state.user && !state.user.isAnonymous); // 로컬 모드는 항상 전체 권한, 클라우드 모드는 관리자 로그인해야 전체 권한
   const list = state.businesses.map(b => `
     <div class="card tap" data-biz="${b.id}">
       <span class="ic">🏢</span>
@@ -480,7 +494,7 @@ function renderHome(){
     : `<div class="banner">데이터는 이 기기(브라우저)에만 저장됩니다. 다른 기기·다른 담당자와는 공유되지 않으니, 여러 명이 함께 관리하려면 클라우드 연결(FIREBASE_CONFIG 설정)이 필요합니다.</div>`;
 
   const authArea = state.cloudReady
-    ? (state.user
+    ? ((state.user && !state.user.isAnonymous)
         ? `<button class="btn-secondary" id="btnLogout">👤 ${esc(state.user.email||'')} · 로그아웃</button>`
         : `<button class="btn-secondary" id="btnLogin">🔒 관리자 로그인</button>`)
     : '';
@@ -1566,6 +1580,7 @@ async function handleScanResult(code){
       state.user = u;
       render();
     });
+    ensureAnonymousAuth();
   }
 
   await loadBusinesses();
