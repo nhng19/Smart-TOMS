@@ -515,6 +515,35 @@
   .breadcrumb{background:var(--info-bg); color:var(--info-fg); border:1px solid var(--info-bd); font-weight:800;}
   .manual-head h2{font-weight:800; letter-spacing:-.03em;}
   .manual-sub{color:var(--brand-500);}
+  /* 체크리스트 아코디언 */
+  .cl-acc-item{background:var(--bg-elev); border:1px solid var(--surface-line); border-radius:var(--r-lg); box-shadow:var(--sh-1); margin-bottom:10px; overflow:hidden; transition:border-color .2s var(--ease), box-shadow .2s var(--ease);}
+  .cl-acc-item.open{border-color:var(--brand-300); box-shadow:var(--sh-2);}
+  .cl-acc-head{display:flex; align-items:center; gap:10px; width:100%; text-align:left; padding:14px; background:none; border:0; cursor:pointer;}
+  .cl-acc-titles{flex:1; min-width:0;}
+  .cl-acc-name{display:block; font-weight:800; font-size:14.5px; letter-spacing:-.01em; color:var(--fg);}
+  .cl-acc-cycle{font-weight:600; font-size:12.5px; color:var(--fg-3);}
+  .cl-acc-sub{display:block; font-size:12.5px; color:var(--fg-3); margin-top:3px;}
+  .cl-acc-chev{flex:none; color:var(--fg-4); font-size:15px; transition:transform .22s var(--ease);}
+  .cl-acc-item.open .cl-acc-chev{transform:rotate(180deg);}
+  .cl-acc-item.open .cl-acc-head{border-bottom:1px solid var(--surface-line);}
+  .cl-acc-body{padding:4px 14px 16px;}
+  .cl-acc-body .section-label:first-child{margin-top:10px;}
+  .cl-guide{background:var(--info-bg); border:1px solid var(--info-bd); border-radius:var(--r-md); padding:12px 14px; margin:10px 0 2px; color:var(--info-fg); font-size:13px; line-height:1.65; white-space:pre-wrap;}
+  .cl-guide-t{font-size:10.5px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; margin-bottom:5px; opacity:.85;}
+  .cl-guide-ul{margin:0; padding-left:18px;}
+  .cl-guide-ul li{margin:3px 0;}
+  /* 점검일지 항목 체크박스 */
+  .log-check-list{display:grid; gap:0; margin:2px 0 6px; border:1px solid var(--surface-line); border-radius:var(--r-md); overflow:hidden; background:var(--bg-elev);}
+  .log-check{display:flex; align-items:center; gap:11px; padding:12px 13px; cursor:pointer; font-size:13.5px; color:var(--fg-2); border-bottom:1px solid var(--surface-line); transition:background .15s var(--ease), color .15s var(--ease);}
+  .log-check:last-child{border-bottom:0;}
+  .log-check input{width:19px; height:19px; flex:none; accent-color:var(--brand-500);}
+  .log-check:has(input:checked){background:var(--ok-bg); color:var(--ok-fg);}
+  .log-check:has(input:checked) span{text-decoration:line-through; opacity:.8;}
+  /* 이력에 표시되는 체크 결과 */
+  .log-checks{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;}
+  .log-chk{font-size:11.5px; font-weight:700; padding:3px 9px; border-radius:var(--r-pill); border:1px solid var(--surface-line); background:var(--bg-sunken); color:var(--fg-3);}
+  .log-chk.on{background:var(--ok-bg); color:var(--ok-fg); border-color:var(--ok-bd);}
+  .log-chk.off{background:var(--danger-bg); color:var(--danger-fg); border-color:var(--danger-bd);}
   .manual-box{background:var(--bg-inset); border:1px solid var(--surface-line); border-radius:var(--r-md); color:var(--fg-2);}
   .flow-box{background:var(--warn-bg); border:1px solid var(--warn-bd); border-radius:var(--r-md);}
   .flow-step{color:var(--fg-2);}
@@ -664,6 +693,11 @@ function cycleLabel(days){
   const presets = {1:'매일', 7:'주간', 14:'격주', 30:'월간', 90:'분기', 180:'반기', 365:'연간'};
   if(!days) return '주기 미설정';
   return presets[days] ? presets[days] : days+'일마다';
+}
+
+/* 체크리스트 항목: guide(한 줄에 하나)를 배열로 변환 → 점검일지 체크박스/이력 표시에 사용 */
+function checklistItems(cl){
+  return (cl && cl.guide) ? normalizeBreaks(cl.guide).split(String.fromCharCode(10)).map(s=>s.trim()).filter(Boolean) : [];
 }
 
 function isAdmin(){ return !state.cloudReady || (!!state.user && !state.user.isAnonymous); }
@@ -1251,6 +1285,12 @@ function tabManual(){
  
   const logs = state.logsCache[state.bizId] || [];
   const checklists = ensureChecklists(item);
+  const manualBoxHtml = `
+    <div class="section-label">매뉴얼 / 점검 방법</div>
+    <div class="manual-box">${esc(normalizeBreaks(item.manual)) || '등록된 매뉴얼이 없습니다.'}</div>
+    ${item.legalBasis ? `<div class="section-label">법적 근거 / 점검 기준</div><div class="manual-box">${esc(normalizeBreaks(item.legalBasis))}</div>` : ''}
+    ${videoHtml}
+    ${flowHtml}`;
   const checklistHtml = checklists.map(cl=>{
     const st = inspectionStatus(item.id, cl, logs);
     let text;
@@ -1258,13 +1298,22 @@ function tabManual(){
     else if(st.state === '미점검') text = '점검 이력 없음. 즉시 점검이 필요합니다.';
     else if(st.state === '기한초과') text = `기한 초과 (예정일 ${fmtDate(st.dueTs)}, D+${Math.abs(st.daysLeft)})`;
     else text = `다음 점검 ${fmtDate(st.dueTs)} (D-${st.daysLeft})`;
+    const guideHtml = checklistItems(cl).length ? `<div class="cl-guide"><div class="cl-guide-t">점검 항목</div><ul class="cl-guide-ul">${checklistItems(cl).map(t=>`<li>${esc(t)}</li>`).join('')}</ul></div>` : '';
     return `
-      <div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <div style="min-width:0;">
-          <div style="font-weight:600; font-size:14px;">${esc(cl.name)} <span style="color:var(--slate); font-weight:400; font-size:12.5px;">(${esc(cycleLabel(cl.cycleDays))})</span></div>
-          <div style="color:var(--slate); font-size:12.5px; margin-top:2px;">${esc(text)}</div>
+      <div class="cl-acc-item" data-clacc="${esc(cl.id)}">
+        <button type="button" class="cl-acc-head" data-clhead="${esc(cl.id)}">
+          <span class="cl-acc-titles">
+            <span class="cl-acc-name">${esc(cl.name)} <span class="cl-acc-cycle">(${esc(cycleLabel(cl.cycleDays))})</span></span>
+            <span class="cl-acc-sub">${esc(text)}</span>
+          </span>
+          <span class="chip ${st.state}">${st.state}</span>
+          <span class="cl-acc-chev">⌄</span>
+        </button>
+        <div class="cl-acc-body" data-clbody="${esc(cl.id)}" style="display:none;">
+          ${guideHtml}
+          ${manualBoxHtml}
+          <button type="button" class="btn-primary cl-acc-log" data-cllog="${esc(cl.id)}" style="margin-top:14px;">📝 이 체크리스트 점검일지 작성</button>
         </div>
-        <span class="chip ${st.state}">${st.state}</span>
       </div>`;
   }).join('') || `<div class="empty">등록된 체크리스트가 없습니다.</div>`;
  
@@ -1277,15 +1326,8 @@ function tabManual(){
       </div>
       <button class="edit-btn" id="btnEditItem" style="${isAdmin() ? '' : 'display:none;'}">수정</button>
     </div>
-    <div class="section-label">점검 체크리스트</div>
+    <div class="section-label">점검 체크리스트 <span style="font-weight:500; color:var(--slate); text-transform:none; letter-spacing:0;">— 탭하면 요령·매뉴얼·일지작성</span></div>
     ${checklistHtml}
-    <div class="section-label">매뉴얼 / 점검 방법</div>
-    <div class="manual-box">${esc(normalizeBreaks(item.manual)) || '등록된 매뉴얼이 없습니다.'}</div>
-    ${item.legalBasis ? `
-    <div class="section-label">법적 근거 / 점검 기준</div>
-    <div class="manual-box">${esc(normalizeBreaks(item.legalBasis))}</div>` : ''}
-    ${videoHtml}
-    ${flowHtml}
   `;
 }
  
@@ -1333,6 +1375,14 @@ function tabLog(){
   if(pendingPhotosForItem !== pendingKey){ pendingPhotos = []; pendingPhotosForItem = pendingKey; }
   const itemOptions = items.map(it=>`<option value="${it.id}" ${it.id===curId?'selected':''}>${esc(it.name)}${it.location? ' - '+esc(it.location):''}</option>`).join('');
   const clOptions = checklists.map(cl=>`<option value="${cl.id}" ${cl.id===curClId?'selected':''}>${esc(cl.name)} (${esc(cycleLabel(cl.cycleDays))})</option>`).join('');
+
+  const curChecklist = checklists.find(cl=>cl.id===curClId);
+  const curCheckItems = checklistItems(curChecklist);
+  const checkListHtml = curCheckItems.length ? `
+    <label class="field-label">점검 항목 체크 <span style="font-weight:500; color:var(--slate);">(확인한 항목을 체크)</span></label>
+    <div class="log-check-list" id="lgCheckList">
+      ${curCheckItems.map((t,i)=>`<label class="log-check"><input type="checkbox" class="lgChk" data-idx="${i}" value="${esc(t)}"><span>${esc(t)}</span></label>`).join('')}
+    </div>` : '';
  
   const logCount = (state.logsCache[state.bizId]||[]).filter(l=>l.itemId===curId && (l.checklistId===curClId || (!l.checklistId && curClId==='legacy'))).length;
  
@@ -1356,31 +1406,49 @@ function tabLog(){
       <option value="보통">보통 (경미한 이상)</option>
       <option value="불량">불량 (즉시 조치 필요)</option>
     </select>
+    ${checkListHtml}
     <label class="field-label">점검 내용 및 조치 사항</label>
     <textarea id="lgContent" placeholder="이상 유무 및 조치 내용을 기재하세요."></textarea>
     <label class="field-label">현장 사진 (선택, 최대 3장 · 불량 항목은 첨부 권장)</label>
     <label class="photo-input-btn" for="lgPhotos">📷 사진 추가</label>
     <input type="file" id="lgPhotos" accept="image/*" capture="environment" multiple style="display:none;">
-    <div class="photo-preview-row">${photoPreviewHtml}</div>
+    <div class="photo-preview-row" id="lgPhotoPreview">${photoPreviewHtml}</div>
     <button class="btn-primary" id="btnSubmitLog">점검 결과 저장</button>
     <button class="btn-secondary" id="btnViewHistory">📋 점검 이력 보기 (총 ${logCount}건)</button>
   `;
 }
+
+/* 사진 미리보기만 갱신 (입력한 성명·직책·조치사항 등이 지워지지 않도록 전체 재렌더 대신 이 부분만 업데이트) */
+function renderLogPhotoPreview(){
+  const wrap = document.getElementById('lgPhotoPreview');
+  if(!wrap) return;
+  wrap.innerHTML = pendingPhotos.map((p,idx)=>`
+    <div class="photo-thumb"><img src="${p}"><button class="rm" data-rmphoto="${idx}">×</button></div>
+  `).join('');
+  wrap.querySelectorAll('[data-rmphoto]').forEach(el=>{
+    el.onclick = ()=>{ pendingPhotos.splice(parseInt(el.dataset.rmphoto,10), 1); renderLogPhotoPreview(); };
+  });
+}
  
 /* ---- 점검 이력 보기 모달 (연도별 필터 + 수정/삭제) ---- */
 let historyYearFilter = '전체';
+let historyMonthFilter = '전체';
 function openLogHistoryModal(itemId, checklistId){
   const items = state.itemsCache[state.bizId] || [];
   const item = items.find(i=>i.id===itemId);
   const checklist = item ? ensureChecklists(item).find(cl=>cl.id===checklistId) : null;
   historyYearFilter = '전체';
+  historyMonthFilter = '전체';
   const bg = document.createElement('div');
   bg.className = 'modal-bg';
   bg.innerHTML = `
     <div class="modal" style="max-height:90vh;">
       <h3>${esc(item ? item.name : '')}${checklist ? ' · '+esc(checklist.name) : ''} 점검 이력</h3>
-      <label class="field-label">연도 필터</label>
-      <select id="historyYearSel"></select>
+      <label class="field-label">기간 필터 (연도 · 월)</label>
+      <div class="cycle-row">
+        <select id="historyYearSel"></select>
+        <select id="historyMonthSel"></select>
+      </div>
       <div id="historyListArea"></div>
       <div class="modal-actions">
         <button class="cancel" id="mClose" style="width:100%;">닫기</button>
@@ -1393,20 +1461,48 @@ function openLogHistoryModal(itemId, checklistId){
     const allLogs = (state.logsCache[state.bizId]||[]).filter(l=>l.itemId===itemId && (l.checklistId===checklistId || (!l.checklistId && checklistId==='legacy'))).sort((a,b)=>b.ts-a.ts);
     const years = Array.from(new Set(allLogs.map(l=>new Date(l.ts).getFullYear()))).sort((a,b)=>b-a);
     const yearSel = bg.querySelector('#historyYearSel');
-    yearSel.innerHTML = `<option value="전체">전체 (${allLogs.length}건)</option>` +
+    yearSel.innerHTML = `<option value="전체">연도 전체 (${allLogs.length}건)</option>` +
       years.map(y=>{
         const cnt = allLogs.filter(l=>new Date(l.ts).getFullYear()===y).length;
         return `<option value="${y}" ${String(y)===historyYearFilter?'selected':''}>${y}년 (${cnt}건)</option>`;
       }).join('');
     yearSel.value = historyYearFilter;
 
-    const filtered = historyYearFilter === '전체' ? allLogs : allLogs.filter(l=>String(new Date(l.ts).getFullYear())===historyYearFilter);
+    // 월 필터: 특정 연도를 골랐을 때만 활성화 (연도 전체에서는 월 구분이 모호하므로 비활성)
+    const monthSel = bg.querySelector('#historyMonthSel');
+    if(historyYearFilter === '전체'){
+      historyMonthFilter = '전체';
+      monthSel.innerHTML = `<option value="전체">월 전체</option>`;
+      monthSel.value = '전체';
+      monthSel.disabled = true;
+    }else{
+      const y = parseInt(historyYearFilter, 10);
+      const inYear = allLogs.filter(l=>new Date(l.ts).getFullYear()===y);
+      monthSel.disabled = false;
+      monthSel.innerHTML = `<option value="전체">월 전체 (${inYear.length}건)</option>` +
+        Array.from({length:12},(_,i)=>i+1).map(m=>{
+          const cnt = inYear.filter(l=>new Date(l.ts).getMonth()===m-1).length;
+          return `<option value="${m}" ${String(m)===historyMonthFilter?'selected':''}>${m}월 (${cnt}건)</option>`;
+        }).join('');
+      monthSel.value = historyMonthFilter;
+    }
+
+    let filtered = allLogs;
+    if(historyYearFilter !== '전체'){
+      const y = parseInt(historyYearFilter, 10);
+      filtered = filtered.filter(l=>new Date(l.ts).getFullYear()===y);
+      if(historyMonthFilter !== '전체'){
+        const m = parseInt(historyMonthFilter, 10);
+        filtered = filtered.filter(l=>new Date(l.ts).getMonth()===m-1);
+      }
+    }
     const area = bg.querySelector('#historyListArea');
     area.innerHTML = filtered.map(l=>`
       <div class="log-item">
         <div class="log-top"><span class="log-name">${esc(l.inspector)}${l.department? ' · '+esc(l.department):''}</span><span class="chip ${l.status}">${l.status}</span></div>
         <div class="log-meta">${fmt(l.ts)}</div>
         <div class="log-content">${esc(l.content) || '-'}</div>
+        ${l.checkItems && l.checkItems.length ? `<div class="log-checks">${l.checkItems.map(ci=>`<span class="log-chk ${ci.checked?'on':'off'}">${ci.checked?'✓':'○'} ${esc(ci.text)}</span>`).join('')}</div>` : ''}
         ${l.photos && l.photos.length ? `<div class="log-photos">${l.photos.map(p=>`<img src="${p}" data-full="${p}">`).join('')}</div>` : ''}
         ${isAdmin() ? `
         <div style="display:flex; gap:8px; margin-top:8px;">
@@ -1414,7 +1510,7 @@ function openLogHistoryModal(itemId, checklistId){
           <button class="edit-btn" data-dellog="${l.id}" style="color:var(--bad); border-color:var(--bad);">삭제</button>
         </div>` : ''}
       </div>
-    `).join('') || `<div class="empty">해당 연도의 점검 이력이 없습니다.</div>`;
+    `).join('') || `<div class="empty">해당 기간의 점검 이력이 없습니다.</div>`;
 
     area.querySelectorAll('.log-photos img').forEach(el=>{
       el.onclick = ()=>{ const w = window.open(); if(w) w.document.write('<img src="'+el.dataset.full+'" style="max-width:100%;">'); };
@@ -1437,7 +1533,8 @@ function openLogHistoryModal(itemId, checklistId){
       };
     });
   }
-  bg.querySelector('#historyYearSel').onchange = (ev)=>{ historyYearFilter = ev.target.value; renderList(); };
+  bg.querySelector('#historyYearSel').onchange = (ev)=>{ historyYearFilter = ev.target.value; historyMonthFilter = '전체'; renderList(); };
+  bg.querySelector('#historyMonthSel').onchange = (ev)=>{ historyMonthFilter = ev.target.value; renderList(); };
   renderList();
 }
 
@@ -1670,6 +1767,37 @@ function attachTabHandlers(){
       const item = items.find(i=>i.id===state.selectedItemId);
       editBtn.onclick = ()=> openItemModal(item);
     }
+    // 체크리스트 아코디언: 탭하면 요령·매뉴얼·비상대응 펼침 (한 번에 하나만)
+    app.querySelectorAll('[data-clhead]').forEach(head=>{
+      head.onclick = ()=>{
+        const id = head.dataset.clhead;
+        const itemEl = head.closest('.cl-acc-item');
+        const wasOpen = itemEl.classList.contains('open');
+        app.querySelectorAll('.cl-acc-item.open').forEach(el=>{
+          el.classList.remove('open');
+          const b = el.querySelector('.cl-acc-body'); if(b) b.style.display = 'none';
+        });
+        if(!wasOpen){
+          itemEl.classList.add('open');
+          const body = app.querySelector('[data-clbody="' + id + '"]');
+          if(body) body.style.display = 'block';
+        }
+      };
+    });
+    // 체크리스트가 하나뿐이면 자동으로 펼침
+    const accItems = app.querySelectorAll('.cl-acc-item');
+    if(accItems.length === 1){
+      accItems[0].classList.add('open');
+      const b = accItems[0].querySelector('.cl-acc-body'); if(b) b.style.display = 'block';
+    }
+    // "이 체크리스트 점검일지 작성" → 해당 체크리스트로 점검일지 탭 이동
+    app.querySelectorAll('[data-cllog]').forEach(btn=>{
+      btn.onclick = ()=>{
+        state.selectedChecklistId = btn.dataset.cllog;
+        state.workspaceTab = 'log';
+        render();
+      };
+    });
   }
   if(state.workspaceTab === 'log'){
     const sel = document.getElementById('logItemSelect');
@@ -1688,11 +1816,10 @@ function attachTabHandlers(){
         try{ const dataUrl = await fileToCompressedDataUrl(f); pendingPhotos.push(dataUrl); }
         catch(e){ showToast('사진을 처리하는 중 오류가 발생했습니다.'); }
       }
-      render();
+      photoInput.value = '';        // 같은 파일 다시 선택 가능하도록 초기화
+      renderLogPhotoPreview();      // 입력값 유지: 미리보기만 갱신
     };
-    app.querySelectorAll('[data-rmphoto]').forEach(el=>{
-      el.onclick = ()=>{ pendingPhotos.splice(parseInt(el.dataset.rmphoto,10), 1); render(); };
-    });
+    renderLogPhotoPreview();        // 처음 렌더된 사진들의 삭제 버튼 연결
     const historyBtn = document.getElementById('btnViewHistory');
     if(historyBtn) historyBtn.onclick = ()=> openLogHistoryModal(state.selectedItemId, state.selectedChecklistId);
   }
@@ -1718,10 +1845,13 @@ async function submitLog(){
   const items = state.itemsCache[state.bizId] || [];
   const item = items.find(i=>i.id===state.selectedItemId);
   if(!state.logsCache[state.bizId]) state.logsCache[state.bizId] = [];
+  const checkEls = Array.from(document.querySelectorAll('#lgCheckList .lgChk'));
+  const checkItems = checkEls.map(el=>({ text: el.value, checked: el.checked }));
   const logEntry = {
     id: uid(), itemId: state.selectedItemId, checklistId: state.selectedChecklistId, itemName: item ? item.name : '',
     inspector, department, status, content, ts: Date.now(), photos: pendingPhotos.slice()
   };
+  if(checkItems.length) logEntry.checkItems = checkItems;
   state.logsCache[state.bizId].push(logEntry);
   pendingPhotos = [];
   pendingPhotosForItem = null;
@@ -1789,6 +1919,7 @@ function checklistRowHtml(presetValues, row){
               value="${isCustom ? esc(cyStr) : ''}"
               style="${isCustom ? '' : 'display:none;'}">
           </div>
+          <textarea class="clGuide" placeholder="점검 항목 (한 줄에 하나씩 · 점검일지에서 체크박스로 표시)&#10;예:&#10;난간 흔들림·파손 육안&#10;바닥 미끄럼·균열&#10;조명 점등 확인" style="margin:8px 0 0; min-height:72px;">${esc(row.guide||'')}</textarea>
         </div>
         <button type="button" class="edit-btn clRemoveBtn" style="color:var(--bad); border-color:var(--bad); flex:none;">삭제</button>
       </div>
@@ -1797,8 +1928,8 @@ function checklistRowHtml(presetValues, row){
 function openItemModal(existing){
   const presetValues = ['1','7','14','30','90','180','365'];
   const initialChecklists = existing
-    ? ensureChecklists(existing).map(cl=>({id:cl.id, name:cl.name, cycleDays:cl.cycleDays||null}))
-    : [{id:null, name:'', cycleDays:null}];
+    ? ensureChecklists(existing).map(cl=>({id:cl.id, name:cl.name, cycleDays:cl.cycleDays||null, guide:cl.guide||''}))
+    : [{id:null, name:'', cycleDays:null, guide:''}];
   const bg = document.createElement('div');
   bg.className='modal-bg';
   bg.innerHTML = `
@@ -1889,7 +2020,8 @@ function openItemModal(existing){
         cycleDays = parseInt(cySel.value, 10);
       }
       const existingId = rowEl.dataset.clid;
-      checklists.push({ id: existingId || uid(), name: clName, cycleDays });
+      const clGuide = normalizeBreaks((rowEl.querySelector('.clGuide') && rowEl.querySelector('.clGuide').value) || '').trim();
+      checklists.push({ id: existingId || uid(), name: clName, cycleDays, guide: clGuide });
     });
     if(!checklists.length){ showToast('체크리스트 이름을 최소 1개 입력하세요.'); return; }
 
