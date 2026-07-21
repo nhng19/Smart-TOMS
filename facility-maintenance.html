@@ -856,31 +856,46 @@ function tabLog(){
 function tabDash(){
   const items = state.itemsCache[state.bizId] || [];
   const logs = state.logsCache[state.bizId] || [];
-  const now = new Date();
-  const curMonth = now.getMonth(), curYear = now.getFullYear();
  
   const withStatus = items.map(it=>({item:it, st:inspectionStatus(it, logs)}));
   const overdue = withStatus.filter(x=>x.st.state==='기한초과' || x.st.state==='미점검');
   const soon = withStatus.filter(x=>x.st.state==='임박');
-  const notThisMonth = items.filter(it=>{
-    const itemLogs = logs.filter(l=>l.itemId===it.id);
-    return !itemLogs.some(l=>{ const d=new Date(l.ts); return d.getMonth()===curMonth && d.getFullYear()===curYear; });
-  });
+  const normal = withStatus.filter(x=>x.st.state==='정상');
+  const noCycle = withStatus.filter(x=>x.st.state==='미설정');
  
-  const listHtml = (arr)=> arr.length ? arr.map(x=>`
+  const listHtml = (arr)=> arr.length ? arr.map(x=>{
+    let sub = x.item.location||'위치 미입력';
+    if(x.st.dueTs) sub += ' · 다음 점검 ' + fmtDate(x.st.dueTs);
+    else if(x.st.lastTs) sub += ' · 최근 점검 ' + fmtDate(x.st.lastTs);
+    return `
     <div class="dash-list-item">
-      <div><div class="name">${esc(x.item.name)}</div><div class="sub">${esc(x.item.location||'위치 미입력')}</div></div>
+      <div><div class="name">${esc(x.item.name)}</div><div class="sub">${esc(sub)}</div></div>
       <span class="chip ${x.st.state}">${x.st.state}</span>
     </div>
-  `).join('') : `<div class="empty">해당 항목이 없습니다.</div>`;
+  `;}).join('') : `<div class="empty">해당 항목이 없습니다.</div>`;
  
-  const monthListHtml = items.length
-    ? (notThisMonth.length ? notThisMonth.map(it=>`
-        <div class="dash-list-item">
-          <div><div class="name">${esc(it.name)}</div><div class="sub">${esc(it.location||'위치 미입력')}</div></div>
-        </div>
-      `).join('') : `<div class="empty">이번 달 모든 항목이 점검되었습니다.</div>`)
-    : `<div class="empty">등록된 점검 항목이 없습니다.</div>`;
+  // 점검 완료(정상) 항목은 점검 주기가 다르면 한데 묶었을 때 헷갈리므로,
+  // 매일/주간/월간 등 주기별로 나눠서 보여준다.
+  const cycleGroups = {};
+  normal.forEach(x=>{
+    const label = cycleLabel(x.item.cycleDays);
+    if(!cycleGroups[label]) cycleGroups[label] = [];
+    cycleGroups[label].push(x);
+  });
+  const cycleOrder = ['매일','주간','격주','월간','분기','반기','연간'];
+  const groupKeys = Object.keys(cycleGroups).sort((a,b)=>{
+    const ia = cycleOrder.indexOf(a), ib = cycleOrder.indexOf(b);
+    if(ia===-1 && ib===-1) return a.localeCompare(b);
+    if(ia===-1) return 1;
+    if(ib===-1) return -1;
+    return ia-ib;
+  });
+  const normalHtml = groupKeys.length
+    ? groupKeys.map(label=>`
+        <div class="section-label" style="margin-top:14px;">${esc(label)} 점검 항목 (${cycleGroups[label].length})</div>
+        ${listHtml(cycleGroups[label])}
+      `).join('')
+    : `<div class="empty">현재 정상 범위인 항목이 없습니다.</div>`;
  
   return `
     <div class="summary-row">
@@ -891,8 +906,9 @@ function tabDash(){
     ${listHtml(overdue)}
     <div class="section-label">점검 임박 항목</div>
     ${listHtml(soon)}
-    <div class="section-label">이번 달(${curYear}.${String(curMonth+1).padStart(2,'0')}) 미점검 항목</div>
-    ${monthListHtml}
+    <div class="section-label">점검 완료(정상) 항목 · 주기별</div>
+    ${normalHtml}
+    ${noCycle.length ? `<div class="section-label">점검 주기 미설정 항목</div>${listHtml(noCycle)}` : ''}
     <div class="section-label">보고서</div>
     <button class="btn-secondary" id="btnExportCsv">⬇ 점검 이력 CSV(엑셀)로 내보내기</button>
     <button class="btn-secondary" id="btnPrintReport">🖨 인쇄용 보고서 보기 / PDF저장</button>
