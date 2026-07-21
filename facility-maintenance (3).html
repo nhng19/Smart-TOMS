@@ -1,0 +1,1331 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>스마트 시설물 유지관리 시스템</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --ink:#1B2430; --brand:#1D4E89; --brand2:#2563EB;
+    --paper:#F3F5F8; --panel:#FFFFFF; --slate:#6B7686; --line:#E2E5EA;
+    --ok:#2E9E5B; --warn:#F0A202; --bad:#D64541; --video:#E23E32;
+    --flowbg:#FFF7E0; --flownum:#F0A202;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  body{margin:0; background:var(--paper); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','IBM Plex Sans KR',sans-serif;}
+  #app{max-width:480px; margin:0 auto; min-height:100vh; background:var(--paper);
+    display:flex; flex-direction:column;}
+ 
+  header.topbar{
+    position:relative; background:var(--brand); color:#fff;
+    padding:18px 46px; text-align:center;
+  }
+  header.topbar .back{position:absolute; left:14px; top:50%; transform:translateY(-50%);
+    background:none;border:none;color:#fff;font-size:20px;cursor:pointer;padding:6px;}
+  header.topbar .topbar-right{position:absolute; right:14px; top:50%; transform:translateY(-50%);}
+  header.topbar .topbar-right button{background:rgba(255,255,255,.15); border:none; color:#fff;
+    border-radius:8px; padding:6px 10px; font-size:13px; cursor:pointer;}
+  header.topbar .eyebrow{font-size:12px; color:#CBDBF2; margin-bottom:2px;}
+  header.topbar .title{font-size:17px; font-weight:700;}
+ 
+  main{flex:1; padding:18px; padding-bottom:88px;}
+ 
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:16px; margin-bottom:12px;}
+  .card h3{margin:0 0 4px; font-size:16px;}
+  .card p{margin:0; color:var(--slate); font-size:13.5px;}
+  .card.tap{cursor:pointer; display:flex; align-items:center; gap:12px;}
+  .card.tap:active{background:#F0F2F5;}
+  .card.tap .ic{font-size:22px; flex:none;}
+  .card.tap .chev{margin-left:auto; color:var(--slate); font-size:18px;}
+ 
+  .qr-promo{background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:24px 18px; text-align:center; margin-bottom:20px;}
+  .qr-promo .glyph{font-size:30px; margin-bottom:8px;}
+  .qr-promo p{color:var(--slate); font-size:13.5px; margin:0 0 14px;}
+ 
+  .btn-primary{
+    display:block; width:100%; padding:13px; border:none; border-radius:9px;
+    background:var(--brand2); color:#fff; font-size:14.5px; font-weight:700; cursor:pointer;
+  }
+  .btn-primary:active{opacity:.85;}
+  .btn-video{
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    width:100%; padding:13px; border:none; border-radius:9px; text-decoration:none;
+    background:var(--video); color:#fff; font-size:14.5px; font-weight:700; cursor:pointer; margin-top:6px;
+  }
+  .btn-secondary{
+    display:block; width:100%; padding:12px; border:1px solid var(--line); border-radius:9px;
+    background:#fff; color:var(--ink); font-size:14px; font-weight:600; cursor:pointer; margin-top:10px;
+  }
+  .btn-ghost-sm{background:rgba(255,255,255,.15); border:none; color:#fff; border-radius:8px;
+    padding:6px 12px; font-size:12.5px; cursor:pointer;}
+ 
+  .section-label{font-size:13px; font-weight:700; color:var(--slate); margin:20px 0 8px;}
+ 
+  input[type=text], textarea, select{
+    width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:8px;
+    font-size:14.5px; font-family:inherit; margin-bottom:12px; background:#fff; color:var(--ink);
+  }
+  textarea{min-height:80px; resize:vertical;}
+  select{appearance:auto;}
+  label.field-label{display:block; font-size:12.5px; color:var(--slate); margin:0 0 6px; font-weight:600;}
+ 
+  .breadcrumb{display:inline-block; font-size:11.5px; font-weight:700; color:var(--brand2);
+    background:#E9F0FC; border-radius:20px; padding:3px 11px; margin-bottom:8px;}
+  .manual-head{display:flex; justify-content:space-between; align-items:flex-start; gap:10px;}
+  .manual-head h2{font-size:19px; margin:0 0 2px;}
+  .manual-sub{color:var(--brand2); font-weight:700; font-size:14px; margin:0 0 14px;}
+  .manual-box{background:#fff; border:1px solid var(--line); border-radius:9px; padding:14px;
+    font-size:13.5px; color:#3D4756; white-space:pre-wrap; margin-bottom:6px;}
+  .edit-btn{border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:8px;
+    padding:6px 12px; font-size:12.5px; cursor:pointer; white-space:nowrap;}
+ 
+  .flow-box{background:var(--flowbg); border:1px solid #F0DFA8; border-radius:9px; padding:6px 14px;}
+  .flow-step{display:flex; align-items:center; gap:10px; padding:9px 0; font-size:13.5px;}
+  .flow-step:not(:last-child){border-bottom:1px solid #F0E2B0;}
+  .flow-num{flex:none; width:22px; height:22px; border-radius:50%; background:var(--flownum); color:#fff;
+    font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center;}
+ 
+  .status-chip-select{display:flex; gap:8px; margin-bottom:2px;}
+ 
+  .log-item{border-bottom:1px solid var(--line); padding:12px 0;}
+  .log-item:last-child{border-bottom:none;}
+  .log-top{display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;}
+  .log-name{font-weight:600; font-size:14.5px;}
+  .chip{font-size:11.5px; font-weight:700; padding:3px 9px; border-radius:20px;}
+  .chip.양호{background:#E8F6EE; color:var(--ok);}
+  .chip.보통{background:#FFF6E4; color:#8A6200;}
+  .chip.불량{background:#FBEAE8; color:var(--bad);}
+  .chip.정상{background:#E8F6EE; color:var(--ok);}
+  .chip.임박{background:#FFF6E4; color:#8A6200;}
+  .chip.기한초과{background:#FBEAE8; color:var(--bad);}
+  .chip.미점검{background:#F0F1F3; color:var(--slate);}
+  .chip.미설정{background:#F0F1F3; color:var(--slate);}
+  .card p .chip{margin-left:6px; vertical-align:middle;}
+ 
+  .cycle-row{display:flex; gap:8px;}
+  .cycle-row select{flex:1;}
+  .cycle-row input{flex:1;}
+ 
+  .summary-row{display:flex; gap:8px; margin-bottom:16px;}
+  .summary-pill{flex:1; border-radius:9px; padding:10px 6px; text-align:center; font-size:12px; font-weight:700; background:#F0F1F3; color:var(--slate);}
+  .summary-pill.bad{background:#FBEAE8; color:var(--bad);}
+  .summary-pill.warn{background:#FFF6E4; color:#8A6200;}
+  .summary-pill .num{display:block; font-size:19px; margin-bottom:2px;}
+  .log-meta{font-size:11.5px; color:var(--slate); font-family:monospace; margin-bottom:4px;}
+  .log-content{font-size:13.5px; color:#3D4756;}
+ 
+  .empty{text-align:center; color:var(--slate); font-size:13.5px; padding:26px 10px;}
+  .banner{background:#E9F0FC; border:1px solid #CBDCEC; color:#1D4E89; font-size:12.5px;
+    border-radius:8px; padding:10px 12px; margin-bottom:14px;}
+ 
+  nav.bottom{
+    position:fixed; bottom:0; left:50%; transform:translateX(-50%);
+    width:100%; max-width:480px; background:#fff; display:flex;
+    border-top:1px solid var(--line); z-index:5;
+  }
+  nav.bottom button{
+    flex:1; background:none; border:none; color:var(--slate); padding:10px 4px;
+    font-size:11.5px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:3px;
+  }
+  nav.bottom button.active{color:var(--brand2); font-weight:700;}
+  nav.bottom button .ic{font-size:19px;}
+ 
+  .modal-bg{position:fixed; inset:0; background:rgba(20,25,35,.5); z-index:20;
+    display:flex; align-items:flex-end; justify-content:center;}
+  .modal{background:#fff; width:100%; max-width:480px; border-radius:16px 16px 0 0;
+    padding:22px 20px 26px; max-height:82vh; overflow-y:auto;}
+  .modal h3{margin:0 0 16px;}
+  .modal-actions{display:flex; gap:10px; margin-top:6px;}
+  .modal-actions button{flex:1; padding:12px; border-radius:8px; border:none; font-weight:600; cursor:pointer;}
+  .modal-actions .cancel{background:#EEECE6; color:var(--ink);}
+  .modal-actions .confirm{background:var(--brand2); color:#fff;}
+ 
+  .scan-box{position:fixed; inset:0; background:#000; z-index:30; display:flex; flex-direction:column;}
+  .scan-box video{flex:1; object-fit:cover; width:100%;}
+  .scan-frame{position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:230px; height:230px; border:3px solid var(--warn); border-radius:12px; pointer-events:none;}
+  .scan-top{position:absolute; top:0; left:0; right:0; padding:16px; display:flex; justify-content:flex-end;}
+  .scan-top button{background:rgba(255,255,255,.15); color:#fff; border:none; border-radius:20px; padding:8px 16px; font-size:13px;}
+  .scan-msg{position:absolute; bottom:26px; left:0; right:0; text-align:center; color:#fff; font-size:13.5px; padding:0 20px;}
+  .scan-fallback{padding:20px; background:#fff; border-radius:14px; margin:16px; text-align:left;}
+ 
+  .qr-wrap{background:#fff; border:1px solid var(--line); border-radius:10px;
+    padding:20px; display:flex; flex-direction:column; align-items:center; margin-bottom:14px;}
+  .qr-wrap .code{font-family:monospace; font-size:11px; color:var(--slate); margin-top:10px; word-break:break-all; text-align:center;}
+ 
+  .qr-mini-btn{flex:none; border:1px solid var(--line); background:#F7F8FA; color:var(--brand2);
+    border-radius:7px; padding:6px 10px; font-size:12px; font-weight:700; cursor:pointer;}
+ 
+  .photo-input-btn{display:block; width:100%; padding:12px; border:1px dashed var(--line); border-radius:8px;
+    background:#F7F8FA; color:var(--slate); font-size:13.5px; text-align:center; cursor:pointer; margin-bottom:10px;}
+  .photo-preview-row{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;}
+  .photo-thumb{position:relative; width:72px; height:72px; border-radius:8px; overflow:hidden; border:1px solid var(--line);}
+  .photo-thumb img{width:100%; height:100%; object-fit:cover; display:block;}
+  .photo-thumb .rm{position:absolute; top:2px; right:2px; background:rgba(0,0,0,.55); color:#fff; border:none;
+    border-radius:50%; width:18px; height:18px; font-size:11px; line-height:1; cursor:pointer;}
+  .log-photos{display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;}
+  .log-photos img{width:60px; height:60px; object-fit:cover; border-radius:6px; border:1px solid var(--line); cursor:pointer;}
+ 
+  .escalate-box{background:#FBEAE8; border:1px solid #F2C7C2; border-radius:10px; padding:14px; margin-bottom:14px;}
+  .escalate-box .esc-title{font-weight:700; color:var(--bad); font-size:14px; margin-bottom:4px;}
+  .escalate-box p{color:#7A2A24; font-size:12.5px; margin:0 0 12px;}
+  .esc-actions{display:flex; gap:8px;}
+  .esc-actions a, .esc-actions button{flex:1; text-align:center; text-decoration:none; padding:10px; border-radius:8px;
+    font-size:13px; font-weight:700; border:none; cursor:pointer;}
+  .esc-actions .esc-sms{background:var(--bad); color:#fff;}
+  .esc-actions .esc-mail{background:#fff; color:var(--bad); border:1px solid var(--bad) !important;}
+ 
+  .dash-list-item{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--line); font-size:13.5px;}
+  .dash-list-item:last-child{border-bottom:none;}
+  .dash-list-item .name{font-weight:600;}
+  .dash-list-item .sub{color:var(--slate); font-size:12px;}
+
+  .warn-banner{background:#FFF6E4; border:1px solid #F0DFA8; color:#8A6200; font-size:12.5px;
+    border-radius:8px; padding:10px 12px; margin-bottom:14px;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+ 
+<script>
+/* ---------------- 상태 ---------------- */
+const state = {
+  screen: 'home',        // home | workspace
+  bizId: null,
+  workspaceTab: 'qr',     // qr | manual | log
+  selectedItemId: null,
+  businesses: [],
+  itemsCache: {},
+  logsCache: {},
+  appSettings: {},
+  cloudReady: false,      // Firebase 연결 성공 여부
+  user: null              // 로그인한 관리자 (Firebase Auth User) 또는 null
+};
+
+/* ---------------- 클라우드(Firebase) 연결 설정 ----------------
+   아래 값을 Firebase 콘솔(https://console.firebase.google.com)에서 만든
+   프로젝트의 '웹 앱 설정' 값으로 채운 뒤 이 파일을 다시 호스팅에 올리세요.
+   이 값들은 공개되어도 안전합니다 (보안은 Firestore 규칙으로 처리). */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCY6K24w-ZdqBTcqaZUdUZo7foboZ6a2vo",
+  authDomain: "smart-toms.firebaseapp.com",
+  projectId: "smart-toms",
+  storageBucket: "smart-toms.firebasestorage.app",
+  messagingSenderId: "734717682542",
+  appId: "1:734717682542:web:5e0eea393dbd83789dd77f"
+};
+
+let db = null;
+function initFirebase(){
+  if(!FIREBASE_CONFIG.apiKey || FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') return false;
+  try{
+    if(!firebase.apps.length){ firebase.initializeApp(FIREBASE_CONFIG); }
+    db = firebase.firestore();
+    return true;
+  }catch(e){ return false; }
+}
+ 
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function esc(s){ const d=document.createElement('div'); d.innerText = s ?? ''; return d.innerHTML; }
+function fmt(ts){ const d = new Date(ts); return d.getFullYear()+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+function fmtDate(ts){ const d = new Date(ts); return d.getFullYear()+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+String(d.getDate()).padStart(2,'0'); }
+ 
+const DAY_MS = 24*60*60*1000;
+const SOON_WINDOW_DAYS = 7; // 마감 며칠 전부터 '임박'으로 표시할지
+ 
+// item: 점검 항목, logs: 해당 사업체의 전체 점검일지 배열
+function inspectionStatus(item, logs){
+  if(!item.cycleDays){ return { state:'미설정' }; }
+  const itemLogs = (logs||[]).filter(l=>l.itemId===item.id);
+  if(!itemLogs.length){ return { state:'미점검', lastTs:null, dueTs:null, daysLeft:null }; }
+  const lastTs = Math.max(...itemLogs.map(l=>l.ts));
+  const dueTs = lastTs + item.cycleDays*DAY_MS;
+  const daysLeft = Math.ceil((dueTs - Date.now())/DAY_MS);
+  let st;
+  if(dueTs < Date.now()) st = '기한초과';
+  else if(daysLeft <= SOON_WINDOW_DAYS) st = '임박';
+  else st = '정상';
+  return { state:st, lastTs, dueTs, daysLeft };
+}
+ 
+function cycleLabel(days){
+  const presets = {1:'매일', 7:'주간', 14:'격주', 30:'월간', 90:'분기', 180:'반기', 365:'연간'};
+  if(!days) return '주기 미설정';
+  return presets[days] ? presets[days] : days+'일마다';
+}
+
+function isAdmin(){ return !state.cloudReady || !!state.user; }
+ 
+/* ---------------- 저장소 (클라우드 연결 시 Firestore, 아니면 기기별 localStorage) ---------------- */
+async function loadBusinesses(){
+  if(state.cloudReady){
+    try{
+      const snap = await db.collection('businesses').get();
+      state.businesses = snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
+    }catch(e){ state.businesses = []; showToast('사업체 목록을 불러오지 못했습니다: ' + (e && e.message ? e.message : e)); }
+  }else{
+    try{ const v = localStorage.getItem('businesses'); state.businesses = v ? JSON.parse(v) : []; }
+    catch(e){ state.businesses = []; }
+  }
+}
+async function upsertBusiness(biz){
+  if(state.cloudReady){
+    const { id, ...data } = biz;
+    await db.collection('businesses').doc(id).set(data);
+  }else{
+    localStorage.setItem('businesses', JSON.stringify(state.businesses));
+  }
+}
+async function deleteBusinessCascade(bizId){
+  if(state.cloudReady){
+    const itemsSnap = await db.collection('businesses').doc(bizId).collection('items').get();
+    await Promise.all(itemsSnap.docs.map(d=>d.ref.delete()));
+    const logsSnap = await db.collection('businesses').doc(bizId).collection('logs').get();
+    await Promise.all(logsSnap.docs.map(d=>d.ref.delete()));
+    await db.collection('businesses').doc(bizId).delete();
+  }else{
+    localStorage.removeItem('items:'+bizId);
+    localStorage.removeItem('logs:'+bizId);
+    localStorage.setItem('businesses', JSON.stringify(state.businesses));
+  }
+}
+ 
+async function loadItems(bizId){
+  if(state.cloudReady){
+    try{
+      const snap = await db.collection('businesses').doc(bizId).collection('items').get();
+      state.itemsCache[bizId] = snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
+    }catch(e){ state.itemsCache[bizId] = []; showToast('설비 목록을 불러오지 못했습니다: ' + (e && e.message ? e.message : e)); }
+  }else{
+    try{ const v = localStorage.getItem('items:'+bizId); state.itemsCache[bizId] = v ? JSON.parse(v) : []; }
+    catch(e){ state.itemsCache[bizId] = []; }
+  }
+  return state.itemsCache[bizId];
+}
+async function upsertItem(bizId, item){
+  if(state.cloudReady){
+    const { id, ...data } = item;
+    await db.collection('businesses').doc(bizId).collection('items').doc(id).set(data);
+  }else{
+    localStorage.setItem('items:'+bizId, JSON.stringify(state.itemsCache[bizId]||[]));
+  }
+}
+async function deleteItemCascade(bizId, itemId){
+  if(state.cloudReady){
+    const logsSnap = await db.collection('businesses').doc(bizId).collection('logs').where('itemId','==',itemId).get();
+    await Promise.all(logsSnap.docs.map(d=>d.ref.delete()));
+    await db.collection('businesses').doc(bizId).collection('items').doc(itemId).delete();
+  }else{
+    localStorage.setItem('items:'+bizId, JSON.stringify(state.itemsCache[bizId]||[]));
+    localStorage.setItem('logs:'+bizId, JSON.stringify(state.logsCache[bizId]||[]));
+  }
+}
+ 
+async function loadLogs(bizId){
+  if(state.cloudReady){
+    try{
+      const snap = await db.collection('businesses').doc(bizId).collection('logs').get();
+      state.logsCache[bizId] = snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
+    }catch(e){ state.logsCache[bizId] = []; showToast('점검 이력을 불러오지 못했습니다: ' + (e && e.message ? e.message : e)); }
+  }else{
+    try{ const v = localStorage.getItem('logs:'+bizId); state.logsCache[bizId] = v ? JSON.parse(v) : []; }
+    catch(e){ state.logsCache[bizId] = []; }
+  }
+  return state.logsCache[bizId];
+}
+async function addLog(bizId, logEntry){
+  if(state.cloudReady){
+    const { id, ...data } = logEntry;
+    await db.collection('businesses').doc(bizId).collection('logs').doc(id).set(data);
+  }else{
+    localStorage.setItem('logs:'+bizId, JSON.stringify(state.logsCache[bizId]||[]));
+  }
+}
+
+async function loadAppSettings(){
+  try{ const v = localStorage.getItem('appSettings'); state.appSettings = v ? JSON.parse(v) : {}; }
+  catch(e){ state.appSettings = {}; }
+}
+async function saveAppSettings(){ localStorage.setItem('appSettings', JSON.stringify(state.appSettings||{})); }
+
+/* ---------------- 관리자 로그인 (클라우드 모드에서만 사용) ---------------- */
+function openLoginModal(){
+  const bg = document.createElement('div');
+  bg.className='modal-bg';
+  bg.innerHTML = `
+    <div class="modal">
+      <h3>관리자 로그인</h3>
+      <label class="field-label">이메일</label>
+      <input type="text" id="loginEmail" placeholder="admin@example.com">
+      <label class="field-label">비밀번호</label>
+      <input type="text" id="loginPw" placeholder="비밀번호">
+      <p style="color:var(--slate); font-size:12px; margin:-6px 0 12px;">사업체·설비 등록/수정/삭제는 관리자 로그인이 필요합니다. 점검일지 작성이나 매뉴얼 열람은 로그인 없이 가능합니다.</p>
+      <div class="modal-actions">
+        <button class="cancel" id="mCancel">취소</button>
+        <button class="confirm" id="mLogin">로그인</button>
+      </div>
+    </div>`;
+  document.body.appendChild(bg);
+  bg.querySelector('#mCancel').onclick = ()=> bg.remove();
+  bg.querySelector('#mLogin').onclick = async ()=>{
+    const email = bg.querySelector('#loginEmail').value.trim();
+    const pw = bg.querySelector('#loginPw').value;
+    if(!email || !pw){ showToast('이메일과 비밀번호를 입력하세요.'); return; }
+    try{
+      await firebase.auth().signInWithEmailAndPassword(email, pw);
+      bg.remove();
+      showToast('로그인되었습니다.');
+    }catch(e){
+      showToast('로그인에 실패했습니다: ' + (e && e.message ? e.message : e));
+    }
+  };
+}
+async function doLogout(){
+  try{ await firebase.auth().signOut(); showToast('로그아웃되었습니다.'); }
+  catch(e){ showToast('로그아웃 중 오류가 발생했습니다.'); }
+}
+
+/* ---------------- 브라우저 기본 alert()/confirm() 대체 ----------------
+   일부 실행 환경(샌드박스 iframe)에서는 window.alert/confirm이 차단되어
+   아무 반응 없이 무시될 수 있어, 앱 내부에서 직접 그리는 확인창/토스트를 사용한다. */
+function showToast(message){
+  const t = document.createElement('div');
+  t.style.cssText = 'position:fixed; left:50%; bottom:100px; transform:translateX(-50%); background:#1B2430; color:#fff; padding:11px 18px; border-radius:9px; font-size:13px; z-index:60; max-width:88%; text-align:center; box-shadow:0 6px 18px rgba(0,0,0,.28);';
+  t.textContent = message;
+  document.body.appendChild(t);
+  setTimeout(()=>{ t.remove(); }, 3200);
+}
+function customConfirm(message, confirmLabel){
+  return new Promise((resolve)=>{
+    const bg = document.createElement('div');
+    bg.className = 'modal-bg';
+    bg.style.zIndex = '40';
+    bg.innerHTML = `
+      <div class="modal">
+        <h3>확인</h3>
+        <p style="color:var(--ink); font-size:14px; white-space:pre-wrap; margin:0 0 18px;">${esc(message)}</p>
+        <div class="modal-actions">
+          <button class="cancel" id="cfCancel">취소</button>
+          <button class="confirm" id="cfOk" style="background:var(--bad);">${esc(confirmLabel || '삭제')}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(bg);
+    bg.querySelector('#cfCancel').onclick = ()=>{ bg.remove(); resolve(false); };
+    bg.querySelector('#cfOk').onclick = ()=>{ bg.remove(); resolve(true); };
+  });
+}
+ 
+/* ---------------- 렌더 공통 ---------------- */
+const app = document.getElementById('app');
+function render(){
+  if(state.screen === 'home') return renderHome();
+  return renderWorkspace();
+}
+ 
+function headerBlock(eyebrow, title, showBack, rightHtml){
+  return `<header class="topbar">
+    ${showBack ? `<button class="back" id="btnBack">←</button>` : ''}
+    <div class="eyebrow">${esc(eyebrow)}</div>
+    <div class="title">${esc(title)}</div>
+    ${rightHtml ? `<div class="topbar-right">${rightHtml}</div>` : ''}
+  </header>`;
+}
+ 
+/* ---------------- 홈: 사업체 목록 ---------------- */
+function renderHome(){
+  const isAdmin = !state.cloudReady || !!state.user; // 로컬 모드는 항상 전체 권한, 클라우드 모드는 로그인해야 관리 가능
+  const list = state.businesses.map(b => `
+    <div class="card tap" data-biz="${b.id}">
+      <span class="ic">🏢</span>
+      <div style="flex:1; min-width:0;"><h3>${esc(b.name)}</h3><p>탭하여 설비 · 매뉴얼 · 점검일지 보기</p></div>
+      ${isAdmin ? `<button class="qr-mini-btn" data-bizsettings="${b.id}" style="margin-right:2px;">⚙ 설정</button>` : ''}
+      <span class="chev">›</span>
+    </div>
+  `).join('') || `<div class="empty">등록된 사업체가 없습니다.<br>${isAdmin ? "아래 버튼으로 사업체를 추가하세요." : "관리자 로그인 후 사업체를 추가할 수 있습니다."}</div>`;
+
+  const baseUrl = (state.appSettings && state.appSettings.baseUrl) || '';
+  const qrWarning = !baseUrl ? `<div class="warn-banner">⚠ QR코드용 웹 주소가 아직 등록되지 않았습니다. 이 상태에서 QR을 <b>휴대폰 기본 카메라 앱</b>으로 스캔하면 인식되지 않고 메모 앱 등이 뜰 수 있습니다.<br>현장에서는 반드시 앱 안의 <b>[📷 QR코드 스캔하기]</b> 버튼을 사용하세요. 실제 웹 호스팅 주소가 생기면 아래 '⚙ 앱 설정'에서 등록하세요.</div>` : '';
+
+  const modeBanner = state.cloudReady
+    ? `<div class="banner">클라우드 저장소에 연결되어 있습니다. 매뉴얼 열람과 점검일지 작성은 누구나 가능하며, 사업체·설비 등록/수정/삭제는 관리자 로그인이 필요합니다.</div>`
+    : `<div class="banner">데이터는 이 기기(브라우저)에만 저장됩니다. 다른 기기·다른 담당자와는 공유되지 않으니, 여러 명이 함께 관리하려면 클라우드 연결(FIREBASE_CONFIG 설정)이 필요합니다.</div>`;
+
+  const authArea = state.cloudReady
+    ? (state.user
+        ? `<button class="btn-secondary" id="btnLogout">👤 ${esc(state.user.email||'')} · 로그아웃</button>`
+        : `<button class="btn-secondary" id="btnLogin">🔒 관리자 로그인</button>`)
+    : '';
+ 
+  app.innerHTML = `
+    ${headerBlock('스마트 시설물 유지관리', '사업체 선택', false)}
+    <main>
+      ${modeBanner}
+      ${qrWarning}
+      ${list}
+      ${isAdmin ? `<button class="btn-secondary" id="btnAddBiz">+ 사업체 추가</button>` : ''}
+      ${authArea}
+      <button class="btn-secondary" id="btnAppSettings">⚙ 앱 설정 (QR용 웹 주소)</button>
+      <button class="btn-secondary" id="btnExportAll">⬇ 전체 데이터 백업 (JSON)</button>
+      ${isAdmin ? `<button class="btn-secondary" id="btnImportAll">⬆ 백업 파일 가져오기</button>
+      <input type="file" id="importFileInput" accept="application/json" style="display:none;">` : ''}
+    </main>
+  `;
+  app.querySelectorAll('[data-biz]').forEach(el=>{
+    el.onclick = async ()=>{
+      state.bizId = el.dataset.biz;
+      await loadItems(state.bizId);
+      await loadLogs(state.bizId);
+      state.selectedItemId = null;
+      state.workspaceTab = 'qr';
+      state.screen = 'workspace';
+      render();
+    };
+  });
+  app.querySelectorAll('[data-bizsettings]').forEach(el=>{
+    el.onclick = (ev)=>{
+      ev.stopPropagation();
+      const biz = state.businesses.find(b=>b.id===el.dataset.bizsettings);
+      if(biz) openBizModal(biz);
+    };
+  });
+  const addBizBtn = document.getElementById('btnAddBiz');
+  if(addBizBtn) addBizBtn.onclick = ()=> openBizModal();
+  document.getElementById('btnAppSettings').onclick = ()=> openAppSettingsModal();
+  document.getElementById('btnExportAll').onclick = ()=> exportAllData();
+  const importBtn = document.getElementById('btnImportAll');
+  if(importBtn) importBtn.onclick = ()=> document.getElementById('importFileInput').click();
+  const importInput = document.getElementById('importFileInput');
+  if(importInput) importInput.onchange = (ev)=>{
+    const f = ev.target.files && ev.target.files[0];
+    if(f) importAllData(f);
+    ev.target.value = '';
+  };
+  const loginBtn = document.getElementById('btnLogin');
+  if(loginBtn) loginBtn.onclick = ()=> openLoginModal();
+  const logoutBtn = document.getElementById('btnLogout');
+  if(logoutBtn) logoutBtn.onclick = ()=> doLogout();
+}
+
+/* ---------------- 앱 설정 (QR용 웹 주소) ---------------- */
+function openAppSettingsModal(){
+  const bg = document.createElement('div');
+  bg.className='modal-bg';
+  bg.innerHTML = `
+    <div class="modal">
+      <h3>앱 설정</h3>
+      <label class="field-label">이 앱이 실제로 호스팅된 웹 주소 (QR코드 생성용)</label>
+      <input type="text" id="setBaseUrl" placeholder="예: https://mysite.com/facility.html" value="${esc(state.appSettings.baseUrl||'')}">
+      <p style="color:var(--slate); font-size:12px; margin:-6px 0 12px;">
+        이 앱을 GitHub Pages, Netlify 등 실제 웹 호스팅에 올린 뒤 그 주소를 입력하면, QR코드가 <b>휴대폰 기본 카메라 앱</b>으로도 정상적으로 열립니다.<br>
+        비워두면 QR에는 텍스트 코드만 담기며, 이 경우 반드시 앱 내 [📷 QR코드 스캔하기] 버튼으로만 인식해야 합니다.
+      </p>
+      <div class="modal-actions">
+        <button class="cancel" id="mCancel">취소</button>
+        <button class="confirm" id="mSave">저장</button>
+      </div>
+    </div>`;
+  document.body.appendChild(bg);
+  bg.querySelector('#mCancel').onclick = ()=> bg.remove();
+  bg.querySelector('#mSave').onclick = async ()=>{
+    state.appSettings.baseUrl = bg.querySelector('#setBaseUrl').value.trim();
+    bg.remove();
+    render();
+    try{ await saveAppSettings(); }
+    catch(e){ showToast('저장 중 오류가 발생했습니다: ' + (e && e.message ? e.message : e)); }
+  };
+}
+
+/* ---------------- 전체 데이터 백업 / 가져오기 ---------------- */
+function exportAllData(){
+  const data = { appSettings: state.appSettings, businesses: state.businesses, items: {}, logs: {} };
+  state.businesses.forEach(b=>{
+    try{ data.items[b.id] = JSON.parse(localStorage.getItem('items:'+b.id) || '[]'); }catch(e){ data.items[b.id] = []; }
+    try{ data.logs[b.id] = JSON.parse(localStorage.getItem('logs:'+b.id) || '[]'); }catch(e){ data.logs[b.id] = []; }
+  });
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = '시설물관리_백업_' + fmtDate(Date.now()).replace(/\./g,'') + '.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+async function importAllData(file){
+  try{
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if(!(await customConfirm('백업 파일을 가져오면 기존 데이터에 사업체가 추가/병합됩니다. 계속하시겠습니까?'))) return;
+    if(data.appSettings){ state.appSettings = Object.assign({}, state.appSettings, data.appSettings); await saveAppSettings(); }
+    const existingIds = new Set(state.businesses.map(b=>b.id));
+    const newBusinesses = (data.businesses||[]).filter(b=>!existingIds.has(b.id));
+    for(const b of newBusinesses){
+      state.businesses.push(b);
+      await upsertBusiness(b);
+    }
+    for(const bizId of Object.keys(data.items||{})){
+      const items = data.items[bizId] || [];
+      state.itemsCache[bizId] = items;
+      for(const it of items){ await upsertItem(bizId, it); }
+    }
+    for(const bizId of Object.keys(data.logs||{})){
+      const logs = data.logs[bizId] || [];
+      state.logsCache[bizId] = logs;
+      for(const lg of logs){ await addLog(bizId, lg); }
+    }
+    showToast('가져오기가 완료되었습니다.');
+    render();
+  }catch(e){
+    showToast('백업 파일을 읽을 수 없습니다: ' + (e && e.message ? e.message : e));
+  }
+}
+ 
+function openBizModal(existing){
+  const bg = document.createElement('div');
+  bg.className='modal-bg';
+  bg.innerHTML = `
+    <div class="modal">
+      <h3>${existing ? '사업체 · 담당자 설정' : '사업체 추가'}</h3>
+      <label class="field-label">사업체명</label>
+      <input type="text" id="bizName" placeholder="예: OO빌딩" value="${existing ? esc(existing.name) : ''}">
+      <label class="field-label">불량(즉시 조치 필요) 발생 시 연락할 담당 부서</label>
+      <input type="text" id="bizDept" placeholder="예: 강릉관광개발공사 시설안전팀" value="${existing ? esc(existing.dept||'') : ''}">
+      <label class="field-label">담당자 성명</label>
+      <input type="text" id="bizContactName" placeholder="예: 홍길동" value="${existing ? esc(existing.contactName||'') : ''}">
+      <label class="field-label">담당자 휴대전화 (문자 발송용)</label>
+      <input type="text" id="bizContactPhone" placeholder="예: 01012345678" value="${existing ? esc(existing.contactPhone||'') : ''}">
+      <label class="field-label">담당자 이메일 (선택)</label>
+      <input type="text" id="bizContactEmail" placeholder="예: manager@example.com" value="${existing ? esc(existing.contactEmail||'') : ''}">
+      <div class="modal-actions">
+        ${existing ? `<button class="cancel" id="mDelete" style="background:#FBEAE8;color:var(--bad);">삭제</button>` : ''}
+        <button class="cancel" id="mCancel">취소</button>
+        <button class="confirm" id="mSave">저장</button>
+      </div>
+    </div>`;
+  document.body.appendChild(bg);
+  bg.querySelector('#mCancel').onclick = ()=> bg.remove();
+  if(existing){
+    const delBtn = bg.querySelector('#mDelete');
+    if(delBtn) delBtn.onclick = async ()=>{
+      if(!(await customConfirm(existing.name + ' 사업체와 모든 설비·점검 이력을 삭제하시겠습니까? 되돌릴 수 없습니다.'))) return;
+      try{
+        await deleteBusinessCascade(existing.id);
+        state.businesses = state.businesses.filter(b=>b.id!==existing.id);
+        delete state.itemsCache[existing.id];
+        delete state.logsCache[existing.id];
+        bg.remove();
+        state.screen = 'home';
+        state.bizId = null;
+        render();
+      }catch(e){ showToast('삭제 중 오류가 발생했습니다: ' + (e && e.message ? e.message : e)); }
+    };
+  }
+  bg.querySelector('#mSave').onclick = async ()=>{
+    const name = bg.querySelector('#bizName').value.trim();
+    if(!name){ showToast('사업체명을 입력하세요.'); return; }
+    const dept = bg.querySelector('#bizDept').value.trim();
+    const contactName = bg.querySelector('#bizContactName').value.trim();
+    const contactPhone = bg.querySelector('#bizContactPhone').value.trim();
+    const contactEmail = bg.querySelector('#bizContactEmail').value.trim();
+    let bizToSave;
+    if(existing){
+      Object.assign(existing, {name, dept, contactName, contactPhone, contactEmail});
+      bizToSave = existing;
+    }else{
+      bizToSave = {id:uid(), name, dept, contactName, contactPhone, contactEmail};
+      state.businesses.push(bizToSave);
+    }
+    bg.remove();
+    render();
+    try{ await upsertBusiness(bizToSave); }
+    catch(e){ showToast('저장 중 오류가 발생했습니다: ' + (e && e.message ? e.message : e)); }
+  };
+}
+ 
+/* ---------------- 워크스페이스 (사업체 내부: 4탭) ---------------- */
+function renderWorkspace(){
+  const biz = state.businesses.find(b=>b.id===state.bizId);
+  let mainHtml = '';
+  if(state.workspaceTab === 'qr') mainHtml = tabQr();
+  else if(state.workspaceTab === 'manual') mainHtml = tabManual();
+  else if(state.workspaceTab === 'log') mainHtml = tabLog();
+  else mainHtml = tabDash();
+ 
+  app.innerHTML = `
+    ${headerBlock(biz.name, '스마트 시설물 유지관리 시스템', true, isAdmin() ? `<button id="btnBizSettings">⚙ 설정</button>` : '')}
+    <main>${mainHtml}</main>
+    <nav class="bottom">
+      <button id="navQr" class="${state.workspaceTab==='qr'?'active':''}"><span class="ic">▦</span>QR/설비</button>
+      <button id="navManual" class="${state.workspaceTab==='manual'?'active':''}"><span class="ic">📘</span>매뉴얼</button>
+      <button id="navLog" class="${state.workspaceTab==='log'?'active':''}"><span class="ic">📝</span>점검일지</button>
+      <button id="navDash" class="${state.workspaceTab==='dash'?'active':''}"><span class="ic">📊</span>현황</button>
+    </nav>
+  `;
+  document.getElementById('btnBack').onclick = ()=>{ state.screen='home'; state.bizId=null; render(); };
+  document.getElementById('navQr').onclick = ()=>{ state.workspaceTab='qr'; render(); };
+  document.getElementById('navManual').onclick = ()=>{ state.workspaceTab='manual'; render(); };
+  document.getElementById('navLog').onclick = ()=>{ state.workspaceTab='log'; render(); };
+  document.getElementById('navDash').onclick = ()=>{ state.workspaceTab='dash'; render(); };
+  const bizSettingsBtn = document.getElementById('btnBizSettings');
+  if(bizSettingsBtn) bizSettingsBtn.onclick = ()=> openBizModal(biz);
+ 
+  attachTabHandlers();
+}
+ 
+/* ---- 탭1: QR/설비 ---- */
+function tabQr(){
+  const items = state.itemsCache[state.bizId] || [];
+  const logs = state.logsCache[state.bizId] || [];
+  const statuses = items.map(it=>inspectionStatus(it, logs));
+  const overdueCount = statuses.filter(s=>s.state==='기한초과' || s.state==='미점검').length;
+  const soonCount = statuses.filter(s=>s.state==='임박').length;
+ 
+  const summaryHtml = items.length ? `
+    <div class="summary-row">
+      <div class="summary-pill bad"><span class="num">${overdueCount}</span>기한초과·미점검</div>
+      <div class="summary-pill warn"><span class="num">${soonCount}</span>점검 임박(${SOON_WINDOW_DAYS}일 이내)</div>
+    </div>` : '';
+ 
+  const list = items.map((it,idx)=>{
+    const st = statuses[idx];
+    const stChip = it.cycleDays ? `<span class="chip ${st.state}">${st.state}</span>` : '';
+    const dueText = it.cycleDays
+      ? (st.state==='미점검' ? '점검 이력 없음' : (st.dueTs ? '다음 점검 ' + fmtDate(st.dueTs) : ''))
+      : cycleLabel(it.cycleDays);
+    return `
+    <div class="card tap" data-item="${it.id}">
+      <span class="ic">🔧</span>
+      <div style="flex:1; min-width:0;">
+        <h3>${esc(it.name)} ${stChip}</h3>
+        <p>${esc(it.location||'위치 미입력')}${dueText ? ' · '+esc(dueText) : ''}</p>
+      </div>
+      <button class="qr-mini-btn" data-qr="${it.id}">QR 보기</button>
+      <span class="chev">›</span>
+    </div>
+  `;}).join('') || `<div class="empty">등록된 점검 항목이 없습니다.</div>`;
+ 
+  return `
+    <div class="qr-promo">
+      <div class="glyph">▦</div>
+      <p>현장 설비에 부착된 QR코드를 스캔하세요</p>
+      <button class="btn-primary" id="btnScan">📷 QR코드 스캔하기</button>
+    </div>
+    ${summaryHtml}
+    <div class="section-label">수동 시설물 선택</div>
+    ${list}
+    ${isAdmin() ? `<button class="btn-secondary" id="btnAddItem">+ 점검 항목 추가</button>` : ''}
+  `;
+}
+ 
+/* ---- 탭2: 매뉴얼 ---- */
+function tabManual(){
+  const items = state.itemsCache[state.bizId] || [];
+  const item = items.find(i=>i.id===state.selectedItemId);
+  if(!item){
+    return `<div class="empty">QR/설비 탭에서 설비를 먼저 선택하세요.</div>`;
+  }
+  const videoHtml = item.videoUrl
+    ? `<a class="btn-video" href="${esc(item.videoUrl)}" target="_blank" rel="noopener">▶ 시청각 동영상 매뉴얼 시청</a>`
+    : '';
+  const steps = (item.flowSteps || []).filter(s=>s.trim());
+  const flowHtml = steps.length ? `
+    <div class="section-label">비상 대응 플로우차트</div>
+    <div class="flow-box">
+      ${steps.map((s,idx)=>`<div class="flow-step"><span class="flow-num">${idx+1}</span><span>${esc(s)}</span></div>`).join('')}
+    </div>` : '';
+ 
+  const logs = state.logsCache[state.bizId] || [];
+  const st = inspectionStatus(item, logs);
+  let cycleHtml = '';
+  if(item.cycleDays){
+    let text;
+    if(st.state === '미점검') text = '점검 이력이 없습니다. 즉시 점검이 필요합니다.';
+    else if(st.state === '기한초과') text = `기한 초과 (예정일 ${fmtDate(st.dueTs)}, D+${Math.abs(st.daysLeft)})`;
+    else text = `다음 점검 예정 ${fmtDate(st.dueTs)} (D-${st.daysLeft})`;
+    cycleHtml = `
+      <div class="section-label">점검 주기</div>
+      <div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <span>${esc(cycleLabel(item.cycleDays))} · ${esc(text)}</span>
+        <span class="chip ${st.state}">${st.state}</span>
+      </div>`;
+  }
+ 
+  return `
+    <div class="manual-head">
+      <div>
+        <div class="breadcrumb">선택된 설비</div>
+        <h2>${esc(item.name)}</h2>
+        ${item.location ? `<div class="manual-sub">${esc(item.location)}</div>` : ''}
+      </div>
+      <button class="edit-btn" id="btnEditItem" style="${isAdmin() ? '' : 'display:none;'}">수정</button>
+    </div>
+    ${cycleHtml}
+    <div class="section-label">매뉴얼 / 점검 방법</div>
+    <div class="manual-box">${esc(item.manual) || '등록된 매뉴얼이 없습니다.'}</div>
+    ${item.legalBasis ? `
+    <div class="section-label">법적 근거 / 점검 기준</div>
+    <div class="manual-box">${esc(item.legalBasis)}</div>` : ''}
+    ${videoHtml}
+    ${flowHtml}
+  `;
+}
+ 
+/* ---- 탭3: 점검일지 ---- */
+let logSelectedStatus = null;
+let pendingPhotos = [];
+let pendingPhotosForItem = null;
+ 
+function fileToCompressedDataUrl(file, maxDim, quality){
+  maxDim = maxDim || 900; quality = quality || 0.7;
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const img = new Image();
+      img.onload = ()=>{
+        let w = img.width, h = img.height;
+        if(w > h && w > maxDim){ h = Math.round(h*maxDim/w); w = maxDim; }
+        else if(h >= w && h > maxDim){ w = Math.round(w*maxDim/h); h = maxDim; }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = ()=> reject(new Error('이미지를 읽을 수 없습니다.'));
+      img.src = reader.result;
+    };
+    reader.onerror = ()=> reject(new Error('파일을 읽을 수 없습니다.'));
+    reader.readAsDataURL(file);
+  });
+}
+ 
+function tabLog(){
+  const items = state.itemsCache[state.bizId] || [];
+  if(!items.length) return `<div class="empty">먼저 점검 항목을 등록하세요.</div>`;
+  const curId = state.selectedItemId && items.find(i=>i.id===state.selectedItemId) ? state.selectedItemId : items[0].id;
+  state.selectedItemId = curId;
+  if(pendingPhotosForItem !== curId){ pendingPhotos = []; pendingPhotosForItem = curId; }
+  const options = items.map(it=>`<option value="${it.id}" ${it.id===curId?'selected':''}>${esc(it.name)}${it.location? ' - '+esc(it.location):''}</option>`).join('');
+ 
+  const logs = (state.logsCache[state.bizId]||[]).filter(l=>l.itemId===curId).sort((a,b)=>b.ts-a.ts);
+  const logHtml = logs.map(l=>`
+    <div class="log-item">
+      <div class="log-top"><span class="log-name">${esc(l.inspector)}${l.department? ' · '+esc(l.department):''}</span><span class="chip ${l.status}">${l.status}</span></div>
+      <div class="log-meta">${fmt(l.ts)}</div>
+      <div class="log-content">${esc(l.content) || '-'}</div>
+      ${l.photos && l.photos.length ? `<div class="log-photos">${l.photos.map(p=>`<img src="${p}" data-full="${p}">`).join('')}</div>` : ''}
+    </div>
+  `).join('') || `<div class="empty">점검 이력이 없습니다.</div>`;
+ 
+  logSelectedStatus = null;
+  const photoPreviewHtml = pendingPhotos.map((p,idx)=>`
+    <div class="photo-thumb"><img src="${p}"><button class="rm" data-rmphoto="${idx}">×</button></div>
+  `).join('');
+  return `
+    <label class="field-label">점검 대상 설비</label>
+    <select id="logItemSelect">${options}</select>
+    <label class="field-label">점검자 성명</label>
+    <input type="text" id="lgInspector" placeholder="작성자 이름 입력">
+    <label class="field-label">소속 / 직책</label>
+    <input type="text" id="lgDept" placeholder="예: 시설관리팀 대리">
+    <label class="field-label">점검 상태</label>
+    <select id="lgStatus">
+      <option value="">선택하세요</option>
+      <option value="양호">양호 (정상 작동)</option>
+      <option value="보통">보통 (경미한 이상)</option>
+      <option value="불량">불량 (즉시 조치 필요)</option>
+    </select>
+    <label class="field-label">점검 내용 및 조치 사항</label>
+    <textarea id="lgContent" placeholder="이상 유무 및 조치 내용을 기재하세요."></textarea>
+    <label class="field-label">현장 사진 (선택, 최대 3장 · 불량 항목은 첨부 권장)</label>
+    <label class="photo-input-btn" for="lgPhotos">📷 사진 추가</label>
+    <input type="file" id="lgPhotos" accept="image/*" capture="environment" multiple style="display:none;">
+    <div class="photo-preview-row">${photoPreviewHtml}</div>
+    <button class="btn-primary" id="btnSubmitLog">점검 결과 저장</button>
+    <div class="section-label">점검 이력</div>
+    ${logHtml}
+  `;
+}
+ 
+/* ---- 탭4: 현황(대시보드) ---- */
+function tabDash(){
+  const items = state.itemsCache[state.bizId] || [];
+  const logs = state.logsCache[state.bizId] || [];
+  const now = new Date();
+  const curMonth = now.getMonth(), curYear = now.getFullYear();
+ 
+  const withStatus = items.map(it=>({item:it, st:inspectionStatus(it, logs)}));
+  const overdue = withStatus.filter(x=>x.st.state==='기한초과' || x.st.state==='미점검');
+  const soon = withStatus.filter(x=>x.st.state==='임박');
+  const notThisMonth = items.filter(it=>{
+    const itemLogs = logs.filter(l=>l.itemId===it.id);
+    return !itemLogs.some(l=>{ const d=new Date(l.ts); return d.getMonth()===curMonth && d.getFullYear()===curYear; });
+  });
+ 
+  const listHtml = (arr)=> arr.length ? arr.map(x=>`
+    <div class="dash-list-item">
+      <div><div class="name">${esc(x.item.name)}</div><div class="sub">${esc(x.item.location||'위치 미입력')}</div></div>
+      <span class="chip ${x.st.state}">${x.st.state}</span>
+    </div>
+  `).join('') : `<div class="empty">해당 항목이 없습니다.</div>`;
+ 
+  const monthListHtml = items.length
+    ? (notThisMonth.length ? notThisMonth.map(it=>`
+        <div class="dash-list-item">
+          <div><div class="name">${esc(it.name)}</div><div class="sub">${esc(it.location||'위치 미입력')}</div></div>
+        </div>
+      `).join('') : `<div class="empty">이번 달 모든 항목이 점검되었습니다.</div>`)
+    : `<div class="empty">등록된 점검 항목이 없습니다.</div>`;
+ 
+  return `
+    <div class="summary-row">
+      <div class="summary-pill bad"><span class="num">${overdue.length}</span>기한초과·미점검</div>
+      <div class="summary-pill warn"><span class="num">${soon.length}</span>점검 임박</div>
+    </div>
+    <div class="section-label">기한초과 · 미점검 항목</div>
+    ${listHtml(overdue)}
+    <div class="section-label">점검 임박 항목</div>
+    ${listHtml(soon)}
+    <div class="section-label">이번 달(${curYear}.${String(curMonth+1).padStart(2,'0')}) 미점검 항목</div>
+    ${monthListHtml}
+    <div class="section-label">보고서</div>
+    <button class="btn-secondary" id="btnExportCsv">⬇ 점검 이력 CSV(엑셀)로 내보내기</button>
+    <button class="btn-secondary" id="btnPrintReport">🖨 인쇄용 보고서 보기 / PDF저장</button>
+  `;
+}
+ 
+function exportCsv(){
+  const biz = state.businesses.find(b=>b.id===state.bizId);
+  const items = state.itemsCache[state.bizId] || [];
+  const logs = state.logsCache[state.bizId] || [];
+  const rows = [['사업체','설비명','위치','점검주기','점검일시','점검자','소속/직책','상태','내용']];
+  logs.slice().sort((a,b)=>a.ts-b.ts).forEach(l=>{
+    const item = items.find(i=>i.id===l.itemId);
+    rows.push([
+      biz ? biz.name : '', item ? item.name : l.itemName, item ? (item.location||'') : '',
+      item ? cycleLabel(item.cycleDays) : '', fmt(l.ts), l.inspector, l.department||'', l.status, (l.content||'').replace(/\n/g,' ')
+    ]);
+  });
+  const csv = rows.map(r => r.map(cell=>{
+    const s = String(cell==null ? '' : cell);
+    return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+  }).join(',')).join('\r\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = (biz ? biz.name : '점검이력') + '_점검일지.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+ 
+function openPrintReport(){
+  const biz = state.businesses.find(b=>b.id===state.bizId);
+  const items = state.itemsCache[state.bizId] || [];
+  const logs = (state.logsCache[state.bizId]||[]).slice().sort((a,b)=>b.ts-a.ts);
+  const rowsHtml = logs.map(l=>{
+    const item = items.find(i=>i.id===l.itemId);
+    return `<tr>
+      <td>${esc(fmt(l.ts))}</td>
+      <td>${esc(item ? item.name : l.itemName)}</td>
+      <td>${esc(item ? (item.location||'') : '')}</td>
+      <td>${esc(l.inspector)}${l.department ? ' ('+esc(l.department)+')' : ''}</td>
+      <td>${esc(l.status)}</td>
+      <td>${esc(l.content||'')}</td>
+    </tr>`;
+  }).join('');
+  const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>점검 보고서</title>'
+    + '<style>body{font-family:sans-serif; padding:24px; color:#1B2430;} '
+    + 'h1{font-size:18px;} h2{font-size:13px; color:#555; font-weight:normal; margin-top:0;} '
+    + 'table{width:100%; border-collapse:collapse; margin-top:16px;} '
+    + 'th,td{border:1px solid #ccc; padding:6px 8px; font-size:12px; text-align:left; vertical-align:top;} '
+    + 'th{background:#f0f0f0;} @media print{ button{display:none;} }</style></head><body>'
+    + '<h1>' + esc(biz ? biz.name : '') + ' 안전점검 보고서</h1>'
+    + '<h2>출력일시: ' + esc(fmt(Date.now())) + '</h2>'
+    + '<table><thead><tr><th>점검일시</th><th>설비명</th><th>위치</th><th>점검자</th><th>상태</th><th>내용</th></tr></thead>'
+    + '<tbody>' + (rowsHtml || '<tr><td colspan="6">점검 이력이 없습니다.</td></tr>') + '</tbody></table>'
+    + '</body></html>';
+  const w = window.open('', '_blank');
+  if(!w){ showToast('팝업이 차단되었습니다. 브라우저 팝업 허용 후 다시 시도해주세요.'); return; }
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(()=> w.print(), 300);
+}
+function attachTabHandlers(){
+  if(state.workspaceTab === 'qr'){
+    app.querySelectorAll('[data-item]').forEach(el=>{
+      el.onclick = ()=>{
+        state.selectedItemId = el.dataset.item;
+        state.workspaceTab = 'manual';
+        render();
+      };
+    });
+    app.querySelectorAll('[data-qr]').forEach(el=>{
+      el.onclick = (ev)=>{
+        ev.stopPropagation();
+        const items = state.itemsCache[state.bizId] || [];
+        const item = items.find(i=>i.id===el.dataset.qr);
+        openQrModal(item);
+      };
+    });
+    const addBtn = document.getElementById('btnAddItem');
+    if(addBtn) addBtn.onclick = ()=> openItemModal();
+    const scanBtn = document.getElementById('btnScan');
+    if(scanBtn) scanBtn.onclick = openScanner;
+  }
+  if(state.workspaceTab === 'manual'){
+    const editBtn = document.getElementById('btnEditItem');
+    if(editBtn){
+      const items = state.itemsCache[state.bizId] || [];
+      const item = items.find(i=>i.id===state.selectedItemId);
+      editBtn.onclick = ()=> openItemModal(item);
+    }
+  }
+  if(state.workspaceTab === 'log'){
+    const sel = document.getElementById('logItemSelect');
+    if(sel) sel.onchange = ()=>{ state.selectedItemId = sel.value; render(); };
+    const statusSel = document.getElementById('lgStatus');
+    if(statusSel) statusSel.onchange = ()=>{ logSelectedStatus = statusSel.value; };
+    const submitBtn = document.getElementById('btnSubmitLog');
+    if(submitBtn) submitBtn.onclick = submitLog;
+    const photoInput = document.getElementById('lgPhotos');
+    if(photoInput) photoInput.onchange = async ()=>{
+      const files = Array.from(photoInput.files || []);
+      for(const f of files){
+        if(pendingPhotos.length >= 3){ showToast('사진은 최대 3장까지 첨부할 수 있습니다.'); break; }
+        try{ const dataUrl = await fileToCompressedDataUrl(f); pendingPhotos.push(dataUrl); }
+        catch(e){ showToast('사진을 처리하는 중 오류가 발생했습니다.'); }
+      }
+      render();
+    };
+    app.querySelectorAll('[data-rmphoto]').forEach(el=>{
+      el.onclick = ()=>{ pendingPhotos.splice(parseInt(el.dataset.rmphoto,10), 1); render(); };
+    });
+    app.querySelectorAll('.log-photos img').forEach(el=>{
+      el.onclick = ()=>{ const w = window.open(); if(w) w.document.write('<img src="'+el.dataset.full+'" style="max-width:100%;">'); };
+    });
+  }
+  if(state.workspaceTab === 'dash'){
+    const csvBtn = document.getElementById('btnExportCsv');
+    if(csvBtn) csvBtn.onclick = exportCsv;
+    const printBtn = document.getElementById('btnPrintReport');
+    if(printBtn) printBtn.onclick = openPrintReport;
+  }
+}
+ 
+async function submitLog(){
+  const inspector = document.getElementById('lgInspector').value.trim();
+  const department = document.getElementById('lgDept').value.trim();
+  const content = document.getElementById('lgContent').value.trim();
+  const status = document.getElementById('lgStatus').value;
+  if(!inspector){ showToast('점검자 성명을 입력하세요.'); return; }
+  if(!status){ showToast('점검 상태를 선택하세요.'); return; }
+  const items = state.itemsCache[state.bizId] || [];
+  const item = items.find(i=>i.id===state.selectedItemId);
+  if(!state.logsCache[state.bizId]) state.logsCache[state.bizId] = [];
+  const logEntry = {
+    id: uid(), itemId: state.selectedItemId, itemName: item ? item.name : '',
+    inspector, department, status, content, ts: Date.now(), photos: pendingPhotos.slice()
+  };
+  state.logsCache[state.bizId].push(logEntry);
+  pendingPhotos = [];
+  pendingPhotosForItem = null;
+  try{ await addLog(state.bizId, logEntry); }
+  catch(e){ showToast('저장에 실패했습니다: ' + (e && e.message ? e.message : e)); }
+  render();
+  if(status === '불량'){
+    const biz = state.businesses.find(b=>b.id===state.bizId);
+    openEscalateModal(biz, item, logEntry);
+  }
+}
+ 
+/* ---------------- 불량 발생 시 에스컬레이션 안내 ---------------- */
+function openEscalateModal(biz, item, log){
+  const summary = `[안전점검 불량 발생]\n사업체: ${biz ? biz.name : ''}\n설비: ${item ? item.name : ''}\n점검자: ${log.inspector}${log.department ? ' ('+log.department+')' : ''}\n내용: ${log.content || '(내용 없음)'}\n시각: ${fmt(log.ts)}`;
+  const hasPhone = biz && biz.contactPhone;
+  const hasEmail = biz && biz.contactEmail;
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `
+    <div class="modal">
+      <h3>⚠ 불량 항목이 등록되었습니다</h3>
+      <div class="escalate-box">
+        <div class="esc-title">즉시 조치가 필요합니다</div>
+        <p>담당 부서/책임자에게 바로 연락해 조치를 요청하세요.</p>
+        ${(!hasPhone && !hasEmail) ? `<p>등록된 담당자 연락처가 없습니다. 사업체 설정(⚙)에서 먼저 등록해주세요.</p>` : `
+        <div class="esc-actions">
+          ${hasPhone ? `<a class="esc-sms" href="sms:${esc(biz.contactPhone)}?body=${encodeURIComponent(summary)}">문자로 알리기</a>` : ''}
+          ${hasEmail ? `<a class="esc-mail" href="mailto:${esc(biz.contactEmail)}?subject=${encodeURIComponent('[안전점검] 불량 발생 - '+(item?item.name:''))}&body=${encodeURIComponent(summary)}">이메일로 알리기</a>` : ''}
+        </div>`}
+      </div>
+      <div class="modal-actions">
+        <button class="cancel" id="mClose" style="width:100%;">닫기</button>
+      </div>
+    </div>`;
+  document.body.appendChild(bg);
+  bg.querySelector('#mClose').onclick = ()=> bg.remove();
+}
+ 
+/* ---------------- 점검 항목 추가/수정 모달 ---------------- */
+const CYCLE_PRESETS = [
+  {v:'', label:'선택 안 함 (주기 미설정)'},
+  {v:'1', label:'매일'},
+  {v:'7', label:'주간(7일)'},
+  {v:'14', label:'격주(14일)'},
+  {v:'30', label:'월간(30일)'},
+  {v:'90', label:'분기(90일)'},
+  {v:'180', label:'반기(180일)'},
+  {v:'365', label:'연간(365일)'},
+  {v:'custom', label:'직접 입력(일 단위)'}
+];
+function openItemModal(existing){
+  const presetValues = ['1','7','14','30','90','180','365'];
+  const existingCycle = existing && existing.cycleDays ? String(existing.cycleDays) : '';
+  const isCustomCycle = existingCycle && !presetValues.includes(existingCycle);
+  const bg = document.createElement('div');
+  bg.className='modal-bg';
+  bg.innerHTML = `
+    <div class="modal">
+      <h3>${existing ? '점검 항목 수정' : '점검 항목 추가'}</h3>
+      <label class="field-label">설비명</label>
+      <input type="text" id="itName" placeholder="예: 자동 핀세터 (BES-X)" value="${existing ? esc(existing.name) : ''}">
+      <label class="field-label">위치 / 모델</label>
+      <input type="text" id="itLoc" placeholder="예: 1층 볼링장 후면" value="${existing ? esc(existing.location||'') : ''}">
+      <label class="field-label">점검 주기</label>
+      <div class="cycle-row">
+        <select id="itCycle">
+          ${CYCLE_PRESETS.map(p=>`<option value="${p.v}" ${(isCustomCycle && p.v==='custom') || (!isCustomCycle && p.v===existingCycle) ? 'selected':''}>${p.label}</option>`).join('')}
+        </select>
+        <input type="text" id="itCycleCustom" placeholder="예: 45" inputmode="numeric"
+          value="${isCustomCycle ? esc(existingCycle) : ''}"
+          style="${isCustomCycle ? '' : 'display:none;'}">
+      </div>
+      <label class="field-label">항목별 매뉴얼 / 점검 방법</label>
+      <textarea id="itManual" placeholder="이 설비의 점검 방법, 유의사항 등을 입력하세요.">${existing ? esc(existing.manual||'') : ''}</textarea>
+      <label class="field-label">법적 근거 / 점검 기준 (선택)</label>
+      <textarea id="itLegal" placeholder="예: 소방시설법 제20조, 승강기 안전관리법 시행규칙 별표3 등">${existing ? esc(existing.legalBasis||'') : ''}</textarea>
+      <label class="field-label">영상 매뉴얼 링크 (선택, 유튜브 등)</label>
+      <input type="text" id="itVideo" placeholder="https://youtube.com/..." value="${existing ? esc(existing.videoUrl||'') : ''}">
+      <label class="field-label">비상 대응 플로우차트 (한 줄에 한 단계씩 입력)</label>
+      <textarea id="itFlow" placeholder="이상 발생 시 즉시 전원 차단&#10;차단기 및 바이패스 밸브 확인&#10;모바일 점검 로그 작성 및 A/S 접수">${existing && existing.flowSteps ? esc(existing.flowSteps.join(String.fromCharCode(10))) : ''}</textarea>
+      <div class="modal-actions">
+        ${existing ? `<button class="cancel" id="mDelete" style="background:#FBEAE8;color:var(--bad);">삭제</button>` : ''}
+        <button class="cancel" id="mCancel">취소</button>
+        <button class="confirm" id="mSave">저장</button>
+      </div>
+    </div>`;
+  document.body.appendChild(bg);
+  const cycleSel = bg.querySelector('#itCycle');
+  const cycleCustom = bg.querySelector('#itCycleCustom');
+  cycleSel.onchange = ()=>{ cycleCustom.style.display = cycleSel.value === 'custom' ? '' : 'none'; };
+  bg.querySelector('#mCancel').onclick = ()=> bg.remove();
+  if(existing){
+    const delBtn = bg.querySelector('#mDelete');
+    if(delBtn) delBtn.onclick = async ()=>{
+      if(!(await customConfirm(existing.name + ' 항목과 관련 점검 이력을 삭제하시겠습니까? 되돌릴 수 없습니다.'))) return;
+      try{
+        await deleteItemCascade(state.bizId, existing.id);
+        const items = state.itemsCache[state.bizId] || [];
+        state.itemsCache[state.bizId] = items.filter(i=>i.id!==existing.id);
+        state.logsCache[state.bizId] = (state.logsCache[state.bizId]||[]).filter(l=>l.itemId!==existing.id);
+        if(state.selectedItemId === existing.id) state.selectedItemId = null;
+        bg.remove();
+        state.workspaceTab = 'qr';
+        render();
+      }catch(e){ showToast('삭제 중 오류가 발생했습니다: ' + (e && e.message ? e.message : e)); }
+    };
+  }
+  bg.querySelector('#mSave').onclick = async ()=>{
+    const name = bg.querySelector('#itName').value.trim();
+    if(!name){ showToast('설비명을 입력하세요.'); return; }
+    const location = bg.querySelector('#itLoc').value.trim();
+    const manual = bg.querySelector('#itManual').value.trim();
+    const legalBasis = bg.querySelector('#itLegal').value.trim();
+    const videoUrl = bg.querySelector('#itVideo').value.trim();
+    const flowSteps = bg.querySelector('#itFlow').value.split(String.fromCharCode(10)).map(s=>s.trim()).filter(Boolean);
+    let cycleDays = null;
+    if(cycleSel.value === 'custom'){
+      const n = parseInt(cycleCustom.value, 10);
+      if(!isNaN(n) && n > 0) cycleDays = n;
+    }else if(cycleSel.value){
+      cycleDays = parseInt(cycleSel.value, 10);
+    }
+    if(!state.itemsCache[state.bizId]) state.itemsCache[state.bizId] = [];
+    let itemToSave;
+    if(existing){
+      Object.assign(existing, {name, location, manual, legalBasis, videoUrl, flowSteps, cycleDays});
+      itemToSave = existing;
+    }else{
+      itemToSave = {id:uid(), name, location, manual, legalBasis, videoUrl, flowSteps, cycleDays};
+      state.itemsCache[state.bizId].push(itemToSave);
+      state.selectedItemId = itemToSave.id;
+    }
+    bg.remove();
+    state.workspaceTab = 'manual';
+    render();
+    try{ await upsertItem(state.bizId, itemToSave); }
+    catch(e){ showToast('저장 중 오류가 발생했습니다: ' + (e && e.message ? e.message : e)); }
+  };
+}
+ 
+/* ---------------- QR 코드 보기 모달 ---------------- */
+function itemDeepLink(bizId, itemId){
+  const base = (state.appSettings && state.appSettings.baseUrl) ? state.appSettings.baseUrl.trim() : '';
+  if(!base || !/^https?:\/\//i.test(base)) return null;
+  const sep = base.includes('?') ? '&' : '?';
+  return base + sep + 'biz=' + encodeURIComponent(bizId) + '&item=' + encodeURIComponent(itemId);
+}
+function itemPlainCode(bizId, itemId){
+  return 'SFM:' + bizId + ':' + itemId;
+}
+ 
+function openQrModal(item){
+  const link = itemDeepLink(state.bizId, item.id);
+  const value = link || itemPlainCode(state.bizId, item.id);
+  const bodyHtml = link
+    ? `<p style="color:var(--slate); font-size:12.5px; text-align:center; margin:0 0 14px;">이 QR을 인쇄하여 현장 설비에 부착하세요.<br>일반 카메라 앱으로 스캔하면 바로 이 화면(매뉴얼)으로 연결됩니다.</p>`
+    : `<div class="warn-banner">⚠ 웹 주소가 설정되어 있지 않아, 이 QR은 휴대폰 <b>기본 카메라 앱</b>으로 스캔 시 인식되지 않을 수 있습니다.<br>현장에서는 반드시 앱 안의 <b>[📷 QR코드 스캔하기]</b> 버튼을 사용하세요.<br>홈 화면 → ⚙ 앱 설정에서 실제 웹 주소를 등록하면 기본 카메라로도 열 수 있습니다.</div>`;
+  const bg = document.createElement('div');
+  bg.className='modal-bg';
+  bg.innerHTML = `
+    <div class="modal">
+      <h3>${esc(item.name)} · QR 코드</h3>
+      <div class="qr-wrap"><div id="qrcanvas"></div><div class="code">${esc(value)}</div></div>
+      ${bodyHtml}
+      <div class="modal-actions">
+        <button class="cancel" id="mClose" style="width:100%;">닫기</button>
+      </div>
+    </div>`;
+  document.body.appendChild(bg);
+  new QRCode(document.getElementById('qrcanvas'), {text:value, width:170, height:170, colorDark:'#1B2430', colorLight:'#ffffff'});
+  bg.querySelector('#mClose').onclick = ()=> bg.remove();
+}
+ 
+/* ---------------- QR 스캔 ---------------- */
+async function openScanner(){
+  const box = document.createElement('div');
+  box.className = 'scan-box';
+  box.innerHTML = `
+    <video autoplay playsinline muted></video>
+    <div class="scan-frame"></div>
+    <div class="scan-top"><button id="scanClose">닫기</button></div>
+    <div class="scan-msg" id="scanMsg">QR을 사각형 안에 맞춰주세요</div>
+  `;
+  document.body.appendChild(box);
+  const video = box.querySelector('video');
+  const closeBtn = box.querySelector('#scanClose');
+  let stream = null, raf = null, stopped = false;
+ 
+  function stop(){
+    stopped = true;
+    if(raf) cancelAnimationFrame(raf);
+    if(stream) stream.getTracks().forEach(t=>t.stop());
+    box.remove();
+  }
+  closeBtn.onclick = stop;
+ 
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    video.srcObject = stream;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const tick = ()=>{
+      if(stopped) return;
+      if(video.readyState === video.HAVE_ENOUGH_DATA){
+        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imgData = ctx.getImageData(0,0,canvas.width, canvas.height);
+        const result = jsQR(imgData.data, imgData.width, imgData.height);
+        if(result){ handleScanResult(result.data); stop(); return; }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+  }catch(e){
+    box.querySelector('#scanMsg').textContent = '카메라를 사용할 수 없습니다.';
+    showManualFallback(box);
+  }
+}
+ 
+function showManualFallback(box){
+  const wrap = document.createElement('div');
+  wrap.className = 'scan-fallback';
+  wrap.innerHTML = `
+    <label class="field-label">QR 코드 값을 직접 입력하세요</label>
+    <input type="text" id="manualCode" placeholder="SFM:사업체ID:항목ID">
+    <button class="btn-primary" id="manualGo">이동</button>
+  `;
+  box.appendChild(wrap);
+  wrap.querySelector('#manualGo').onclick = ()=>{
+    const v = wrap.querySelector('#manualCode').value.trim();
+    handleScanResult(v);
+    box.remove();
+  };
+}
+ 
+function parseScannedValue(raw){
+  const value = (raw||'').trim();
+  // 1) 새 형식: URL (?biz=xxx&item=yyy)
+  try{
+    const u = new URL(value, location.href);
+    const bizId = u.searchParams.get('biz');
+    const itemId = u.searchParams.get('item');
+    if(bizId && itemId) return {bizId, itemId};
+  }catch(e){ /* URL 형식이 아니면 무시하고 아래로 */ }
+  // 2) 구 형식 호환: SFM:사업체ID:항목ID
+  const parts = value.split(':');
+  if(parts.length === 3 && parts[0] === 'SFM') return {bizId: parts[1], itemId: parts[2]};
+  return null;
+}
+ 
+async function handleScanResult(code){
+  const parsed = parseScannedValue(code);
+  if(!parsed){ showToast('등록되지 않은 QR입니다.'); return; }
+  const { bizId, itemId } = parsed;
+  if(bizId !== state.bizId){ showToast('현재 사업체의 QR이 아닙니다.'); return; }
+  const item = (state.itemsCache[state.bizId]||[]).find(i=>i.id===itemId);
+  if(!item){ showToast('등록되지 않은 점검 항목입니다.'); return; }
+  state.selectedItemId = itemId;
+  state.workspaceTab = 'manual';
+  render();
+}
+ 
+/* ---------------- 시작 ---------------- */
+(async function init(){
+  app.innerHTML = `<div style="padding:40px;text-align:center;color:#748092;">불러오는 중…</div>`;
+  await loadAppSettings();
+  state.cloudReady = initFirebase();
+
+  if(state.cloudReady){
+    firebase.auth().onAuthStateChanged((u)=>{
+      state.user = u;
+      render();
+    });
+  }
+
+  await loadBusinesses();
+ 
+  // QR을 일반 카메라 앱으로 스캔해 URL로 바로 들어온 경우 처리
+  const params = new URLSearchParams(location.search);
+  const bizId = params.get('biz');
+  const itemId = params.get('item');
+  if(bizId && itemId && state.businesses.find(b=>b.id===bizId)){
+    state.bizId = bizId;
+    await loadItems(bizId);
+    await loadLogs(bizId);
+    const item = (state.itemsCache[bizId]||[]).find(i=>i.id===itemId);
+    state.selectedItemId = item ? itemId : null;
+    state.workspaceTab = item ? 'manual' : 'qr';
+    state.screen = 'workspace';
+  }
+ 
+  render();
+})();
+</script>
+</body>
+</html>
