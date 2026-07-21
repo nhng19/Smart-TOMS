@@ -244,7 +244,7 @@ function fmt(ts){ const d = new Date(ts); return d.getFullYear()+'.'+String(d.ge
 function fmtDate(ts){ const d = new Date(ts); return d.getFullYear()+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+String(d.getDate()).padStart(2,'0'); }
  
 const DAY_MS = 24*60*60*1000;
-const SOON_WINDOW_DAYS = 7; // 마감 며칠 전부터 '임박'으로 표시할지
+const SOON_WINDOW_DAYS = 3; // 마감 며칠 전부터 '임박'으로 표시할지
  
 // itemId: 설비 id, checklist: {id, name, cycleDays}, logs: 해당 사업체의 전체 점검일지 배열
 function inspectionStatus(itemId, checklist, logs){
@@ -1251,7 +1251,7 @@ async function submitLog(){
   const item = items.find(i=>i.id===state.selectedItemId);
   if(!state.logsCache[state.bizId]) state.logsCache[state.bizId] = [];
   const logEntry = {
-    id: uid(), itemId: state.selectedItemId, itemName: item ? item.name : '',
+    id: uid(), itemId: state.selectedItemId, checklistId: state.selectedChecklistId, itemName: item ? item.name : '',
     inspector, department, status, content, ts: Date.now(), photos: pendingPhotos.slice()
   };
   state.logsCache[state.bizId].push(logEntry);
