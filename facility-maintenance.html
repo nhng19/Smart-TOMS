@@ -896,8 +896,8 @@ function renderHome(){
     </div>
   `).join('') || `<div class="gn-empty">등록된 사업체가 없습니다.<br>${isAdmin ? "아래 <b>사업체 추가</b> 버튼으로 시작하세요." : "관리자 로그인 후 사업체를 추가할 수 있습니다."}</div>`;
 
-  const baseUrl = (state.appSettings && state.appSettings.baseUrl) || '';
-  const qrWarning = !baseUrl ? `<div class="gn-banner is-warn">${gsvg(GI.alert)}<div>QR용 웹 주소가 아직 등록되지 않았습니다. 이 상태에서 <b>휴대폰 기본 카메라</b>로 QR을 스캔하면 인식되지 않을 수 있어요. 현장에서는 앱 안의 <b>QR코드 스캔</b> 버튼을 쓰고, 웹 주소가 생기면 아래 <b>앱 설정</b>에 등록하세요.</div></div>` : '';
+  const hasBaseUrl = !!effectiveBaseUrl();
+  const qrWarning = !hasBaseUrl ? `<div class="gn-banner is-warn">${gsvg(GI.alert)}<div>QR용 웹 주소가 없습니다. 지금은 파일로 직접 연 상태라 QR이 <b>휴대폰 기본 카메라</b>로는 안 열릴 수 있어요. 현장에서는 앱 안의 <b>QR코드 스캔</b> 버튼을 쓰거나, 이 앱을 웹에 올려 그 주소로 접속하세요(그러면 자동 인식됩니다).</div></div>` : '';
 
   const modeBanner = state.cloudReady
     ? `<div class="gn-banner">${gsvg(GI.info)}<div>클라우드에 연결되어 있습니다. 매뉴얼 열람·점검일지 작성은 누구나 가능하며, 사업체·설비 등록/수정/삭제는 <b>관리자 로그인</b>이 필요합니다.</div></div>`
@@ -1002,17 +1002,18 @@ function renderHome(){
 
 /* ---------------- 앱 설정 (QR용 웹 주소) ---------------- */
 function openAppSettingsModal(){
+  const auto = (location.protocol === 'http:' || location.protocol === 'https:') ? (location.origin + location.pathname) : '';
+  const autoHint = auto
+    ? `<p style="color:var(--ok); font-size:12px; margin:-6px 0 12px;">✓ 현재 웹 주소를 자동으로 사용 중입니다: <b>${esc(auto)}</b><br>따로 입력하지 않아도 QR이 휴대폰 카메라로 열립니다. 다른 주소를 쓰려면 아래에 직접 입력하세요.</p>`
+    : `<p style="color:var(--slate); font-size:12px; margin:-6px 0 12px;">지금은 파일로 직접 연 상태(file://)라 자동 주소를 쓸 수 없습니다. 이 앱을 웹 호스팅에 올린 뒤 그 주소로 접속하면 자동 인식되며, 특정 주소를 고정하려면 아래에 입력하세요.</p>`;
   const bg = document.createElement('div');
   bg.className='modal-bg';
   bg.innerHTML = `
     <div class="modal">
       <h3>앱 설정</h3>
-      <label class="field-label">이 앱이 실제로 호스팅된 웹 주소 (QR코드 생성용)</label>
-      <input type="text" id="setBaseUrl" placeholder="예: https://mysite.com/facility.html" value="${esc(state.appSettings.baseUrl||'')}">
-      <p style="color:var(--slate); font-size:12px; margin:-6px 0 12px;">
-        이 앱을 GitHub Pages, Netlify 등 실제 웹 호스팅에 올린 뒤 그 주소를 입력하면, QR코드가 <b>휴대폰 기본 카메라 앱</b>으로도 정상적으로 열립니다.<br>
-        비워두면 QR에는 텍스트 코드만 담기며, 이 경우 반드시 앱 내 [📷 QR코드 스캔하기] 버튼으로만 인식해야 합니다.
-      </p>
+      <label class="field-label">QR용 웹 주소 (선택 · 비워두면 자동)</label>
+      <input type="text" id="setBaseUrl" placeholder="${auto ? esc(auto)+' (자동)' : '예: https://mysite.com/facility.html'}" value="${esc(state.appSettings.baseUrl||'')}">
+      ${autoHint}
       <div class="modal-actions">
         <button class="cancel" id="mCancel">취소</button>
         <button class="confirm" id="mSave">저장</button>
@@ -1915,9 +1916,18 @@ function openItemModal(existing){
 }
  
 /* ---------------- QR 코드 보기 모달 ---------------- */
+/* 등록된 웹 주소가 없어도, 웹(http/https)으로 접속했다면 현재 페이지 주소를 자동으로 사용 */
+function effectiveBaseUrl(){
+  const reg = (state.appSettings && state.appSettings.baseUrl) ? state.appSettings.baseUrl.trim() : '';
+  if(reg && /^https?:\/\//i.test(reg)) return reg;
+  if(location.protocol === 'http:' || location.protocol === 'https:'){
+    return location.origin + location.pathname;   // 쿼리/해시 제외, 현재 주소 그대로
+  }
+  return null; // file:// 등 공유 불가한 경우
+}
 function itemDeepLink(bizId, itemId){
-  const base = (state.appSettings && state.appSettings.baseUrl) ? state.appSettings.baseUrl.trim() : '';
-  if(!base || !/^https?:\/\//i.test(base)) return null;
+  const base = effectiveBaseUrl();
+  if(!base) return null;
   const sep = base.includes('?') ? '&' : '?';
   return base + sep + 'biz=' + encodeURIComponent(bizId) + '&item=' + encodeURIComponent(itemId);
 }
