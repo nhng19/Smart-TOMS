@@ -202,6 +202,7 @@ const state = {
   bizId: null,
   workspaceTab: 'qr',     // qr | manual | log
   selectedItemId: null,
+  selectedChecklistId: null,
   businesses: [],
   itemsCache: {},
   logsCache: {},
@@ -235,25 +236,38 @@ function initFirebase(){
  
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function esc(s){ const d=document.createElement('div'); d.innerText = s ?? ''; return d.innerHTML; }
+// 붙여넣기 등으로 텍스트에 실제 줄바꿈 대신 <br> 태그가 섞여 들어온 경우, 진짜 줄바꿈으로 정규화한다.
+function normalizeBreaks(s){
+  return (s ?? '').replace(/<br\s*\/?>/gi, String.fromCharCode(10));
+}
 function fmt(ts){ const d = new Date(ts); return d.getFullYear()+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 function fmtDate(ts){ const d = new Date(ts); return d.getFullYear()+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+String(d.getDate()).padStart(2,'0'); }
  
 const DAY_MS = 24*60*60*1000;
 const SOON_WINDOW_DAYS = 7; // 마감 며칠 전부터 '임박'으로 표시할지
  
-// item: 점검 항목, logs: 해당 사업체의 전체 점검일지 배열
-function inspectionStatus(item, logs){
-  if(!item.cycleDays){ return { state:'미설정' }; }
-  const itemLogs = (logs||[]).filter(l=>l.itemId===item.id);
-  if(!itemLogs.length){ return { state:'미점검', lastTs:null, dueTs:null, daysLeft:null }; }
-  const lastTs = Math.max(...itemLogs.map(l=>l.ts));
-  const dueTs = lastTs + item.cycleDays*DAY_MS;
+// itemId: 설비 id, checklist: {id, name, cycleDays}, logs: 해당 사업체의 전체 점검일지 배열
+function inspectionStatus(itemId, checklist, logs){
+  if(!checklist.cycleDays){ return { state:'미설정' }; }
+  const relevantLogs = (logs||[]).filter(l=>l.itemId===itemId && (l.checklistId===checklist.id || (!l.checklistId && checklist.id==='legacy')));
+  if(!relevantLogs.length){ return { state:'미점검', lastTs:null, dueTs:null, daysLeft:null }; }
+  const lastTs = Math.max(...relevantLogs.map(l=>l.ts));
+  const dueTs = lastTs + checklist.cycleDays*DAY_MS;
   const daysLeft = Math.ceil((dueTs - Date.now())/DAY_MS);
   let st;
   if(dueTs < Date.now()) st = '기한초과';
   else if(daysLeft <= SOON_WINDOW_DAYS) st = '임박';
   else st = '정상';
   return { state:st, lastTs, dueTs, daysLeft };
+}
+
+// 같은 설비에 여러 점검 주기를 등록할 수 있도록, 설비마다 checklists 배열을 보장한다.
+// 예전 방식(설비 하나 = 주기 하나)으로 저장된 항목은 자동으로 체크리스트 1개로 변환한다.
+function ensureChecklists(item){
+  if(!item.checklists || !item.checklists.length){
+    item.checklists = [{ id:'legacy', name:'정기 점검', cycleDays: item.cycleDays || null }];
+  }
+  return item.checklists;
 }
  
 function cycleLabel(days){
@@ -345,6 +359,13 @@ async function addLog(bizId, logEntry){
   if(state.cloudReady){
     const { id, ...data } = logEntry;
     await db.collection('businesses').doc(bizId).collection('logs').doc(id).set(data);
+  }else{
+    localStorage.setItem('logs:'+bizId, JSON.stringify(state.logsCache[bizId]||[]));
+  }
+}
+async function deleteLog(bizId, logId){
+  if(state.cloudReady){
+    await db.collection('businesses').doc(bizId).collection('logs').doc(logId).delete();
   }else{
     localStorage.setItem('logs:'+bizId, JSON.stringify(state.logsCache[bizId]||[]));
   }
@@ -682,30 +703,38 @@ function renderWorkspace(){
 function tabQr(){
   const items = state.itemsCache[state.bizId] || [];
   const logs = state.logsCache[state.bizId] || [];
-  const statuses = items.map(it=>inspectionStatus(it, logs));
-  const overdueCount = statuses.filter(s=>s.state==='기한초과' || s.state==='미점검').length;
-  const soonCount = statuses.filter(s=>s.state==='임박').length;
- 
+
+  let overdueCount = 0, soonCount = 0;
+  const rows = items.map(it=>{
+    const checklists = ensureChecklists(it);
+    const statuses = checklists.map(cl=>inspectionStatus(it.id, cl, logs));
+    const od = statuses.filter(s=>s.state==='기한초과' || s.state==='미점검').length;
+    const sn = statuses.filter(s=>s.state==='임박').length;
+    overdueCount += od; soonCount += sn;
+    return { item: it, checklists, od, sn };
+  });
+
   const summaryHtml = items.length ? `
     <div class="summary-row">
-      <div class="summary-pill bad"><span class="num">${overdueCount}</span>기한초과·미점검</div>
-      <div class="summary-pill warn"><span class="num">${soonCount}</span>점검 임박(${SOON_WINDOW_DAYS}일 이내)</div>
+      <div class="summary-pill bad"><span class="num">${overdueCount}</span>기한초과·미점검 체크리스트</div>
+      <div class="summary-pill warn"><span class="num">${soonCount}</span>점검 임박 체크리스트(${SOON_WINDOW_DAYS}일 이내)</div>
     </div>` : '';
  
-  const list = items.map((it,idx)=>{
-    const st = statuses[idx];
-    const stChip = it.cycleDays ? `<span class="chip ${st.state}">${st.state}</span>` : '';
-    const dueText = it.cycleDays
-      ? (st.state==='미점검' ? '점검 이력 없음' : (st.dueTs ? '다음 점검 ' + fmtDate(st.dueTs) : ''))
-      : cycleLabel(it.cycleDays);
+  const list = rows.map(r=>{
+    const hasCycle = r.checklists.some(cl=>cl.cycleDays);
+    let stChip = '';
+    if(r.od > 0) stChip = `<span class="chip 기한초과">${r.od}건 확인필요</span>`;
+    else if(r.sn > 0) stChip = `<span class="chip 임박">${r.sn}건 임박</span>`;
+    else if(hasCycle) stChip = `<span class="chip 정상">정상</span>`;
+    const sub = `${r.item.location||'위치 미입력'} · 체크리스트 ${r.checklists.length}개`;
     return `
-    <div class="card tap" data-item="${it.id}">
+    <div class="card tap" data-item="${r.item.id}">
       <span class="ic">🔧</span>
       <div style="flex:1; min-width:0;">
-        <h3>${esc(it.name)} ${stChip}</h3>
-        <p>${esc(it.location||'위치 미입력')}${dueText ? ' · '+esc(dueText) : ''}</p>
+        <h3>${esc(r.item.name)} ${stChip}</h3>
+        <p>${esc(sub)}</p>
       </div>
-      <button class="qr-mini-btn" data-qr="${it.id}">QR 보기</button>
+      <button class="qr-mini-btn" data-qr="${r.item.id}">QR 보기</button>
       <span class="chev">›</span>
     </div>
   `;}).join('') || `<div class="empty">등록된 점검 항목이 없습니다.</div>`;
@@ -733,7 +762,9 @@ function tabManual(){
   const videoHtml = item.videoUrl
     ? `<a class="btn-video" href="${esc(item.videoUrl)}" target="_blank" rel="noopener">▶ 시청각 동영상 매뉴얼 시청</a>`
     : '';
-  const steps = (item.flowSteps || []).filter(s=>s.trim());
+  const steps = (item.flowSteps || [])
+    .flatMap(s=>normalizeBreaks(s).split(String.fromCharCode(10)))
+    .map(s=>s.trim()).filter(Boolean);
   const flowHtml = steps.length ? `
     <div class="section-label">비상 대응 플로우차트</div>
     <div class="flow-box">
@@ -741,20 +772,23 @@ function tabManual(){
     </div>` : '';
  
   const logs = state.logsCache[state.bizId] || [];
-  const st = inspectionStatus(item, logs);
-  let cycleHtml = '';
-  if(item.cycleDays){
+  const checklists = ensureChecklists(item);
+  const checklistHtml = checklists.map(cl=>{
+    const st = inspectionStatus(item.id, cl, logs);
     let text;
-    if(st.state === '미점검') text = '점검 이력이 없습니다. 즉시 점검이 필요합니다.';
+    if(!cl.cycleDays) text = '주기 미설정';
+    else if(st.state === '미점검') text = '점검 이력 없음. 즉시 점검이 필요합니다.';
     else if(st.state === '기한초과') text = `기한 초과 (예정일 ${fmtDate(st.dueTs)}, D+${Math.abs(st.daysLeft)})`;
-    else text = `다음 점검 예정 ${fmtDate(st.dueTs)} (D-${st.daysLeft})`;
-    cycleHtml = `
-      <div class="section-label">점검 주기</div>
+    else text = `다음 점검 ${fmtDate(st.dueTs)} (D-${st.daysLeft})`;
+    return `
       <div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <span>${esc(cycleLabel(item.cycleDays))} · ${esc(text)}</span>
+        <div style="min-width:0;">
+          <div style="font-weight:600; font-size:14px;">${esc(cl.name)} <span style="color:var(--slate); font-weight:400; font-size:12.5px;">(${esc(cycleLabel(cl.cycleDays))})</span></div>
+          <div style="color:var(--slate); font-size:12.5px; margin-top:2px;">${esc(text)}</div>
+        </div>
         <span class="chip ${st.state}">${st.state}</span>
       </div>`;
-  }
+  }).join('') || `<div class="empty">등록된 체크리스트가 없습니다.</div>`;
  
   return `
     <div class="manual-head">
@@ -765,12 +799,13 @@ function tabManual(){
       </div>
       <button class="edit-btn" id="btnEditItem" style="${isAdmin() ? '' : 'display:none;'}">수정</button>
     </div>
-    ${cycleHtml}
+    <div class="section-label">점검 체크리스트</div>
+    ${checklistHtml}
     <div class="section-label">매뉴얼 / 점검 방법</div>
-    <div class="manual-box">${esc(item.manual) || '등록된 매뉴얼이 없습니다.'}</div>
+    <div class="manual-box">${esc(normalizeBreaks(item.manual)) || '등록된 매뉴얼이 없습니다.'}</div>
     ${item.legalBasis ? `
     <div class="section-label">법적 근거 / 점검 기준</div>
-    <div class="manual-box">${esc(item.legalBasis)}</div>` : ''}
+    <div class="manual-box">${esc(normalizeBreaks(item.legalBasis))}</div>` : ''}
     ${videoHtml}
     ${flowHtml}
   `;
@@ -780,6 +815,7 @@ function tabManual(){
 let logSelectedStatus = null;
 let pendingPhotos = [];
 let pendingPhotosForItem = null;
+let editPendingPhotos = [];
  
 function fileToCompressedDataUrl(file, maxDim, quality){
   maxDim = maxDim || 900; quality = quality || 0.7;
@@ -809,18 +845,18 @@ function tabLog(){
   if(!items.length) return `<div class="empty">먼저 점검 항목을 등록하세요.</div>`;
   const curId = state.selectedItemId && items.find(i=>i.id===state.selectedItemId) ? state.selectedItemId : items[0].id;
   state.selectedItemId = curId;
-  if(pendingPhotosForItem !== curId){ pendingPhotos = []; pendingPhotosForItem = curId; }
-  const options = items.map(it=>`<option value="${it.id}" ${it.id===curId?'selected':''}>${esc(it.name)}${it.location? ' - '+esc(it.location):''}</option>`).join('');
+  const curItem = items.find(i=>i.id===curId);
+  const checklists = ensureChecklists(curItem);
+  if(!state.selectedChecklistId || !checklists.find(cl=>cl.id===state.selectedChecklistId)){
+    state.selectedChecklistId = checklists[0].id;
+  }
+  const curClId = state.selectedChecklistId;
+  const pendingKey = curId + ':' + curClId;
+  if(pendingPhotosForItem !== pendingKey){ pendingPhotos = []; pendingPhotosForItem = pendingKey; }
+  const itemOptions = items.map(it=>`<option value="${it.id}" ${it.id===curId?'selected':''}>${esc(it.name)}${it.location? ' - '+esc(it.location):''}</option>`).join('');
+  const clOptions = checklists.map(cl=>`<option value="${cl.id}" ${cl.id===curClId?'selected':''}>${esc(cl.name)} (${esc(cycleLabel(cl.cycleDays))})</option>`).join('');
  
-  const logs = (state.logsCache[state.bizId]||[]).filter(l=>l.itemId===curId).sort((a,b)=>b.ts-a.ts);
-  const logHtml = logs.map(l=>`
-    <div class="log-item">
-      <div class="log-top"><span class="log-name">${esc(l.inspector)}${l.department? ' · '+esc(l.department):''}</span><span class="chip ${l.status}">${l.status}</span></div>
-      <div class="log-meta">${fmt(l.ts)}</div>
-      <div class="log-content">${esc(l.content) || '-'}</div>
-      ${l.photos && l.photos.length ? `<div class="log-photos">${l.photos.map(p=>`<img src="${p}" data-full="${p}">`).join('')}</div>` : ''}
-    </div>
-  `).join('') || `<div class="empty">점검 이력이 없습니다.</div>`;
+  const logCount = (state.logsCache[state.bizId]||[]).filter(l=>l.itemId===curId && (l.checklistId===curClId || (!l.checklistId && curClId==='legacy'))).length;
  
   logSelectedStatus = null;
   const photoPreviewHtml = pendingPhotos.map((p,idx)=>`
@@ -828,7 +864,9 @@ function tabLog(){
   `).join('');
   return `
     <label class="field-label">점검 대상 설비</label>
-    <select id="logItemSelect">${options}</select>
+    <select id="logItemSelect">${itemOptions}</select>
+    <label class="field-label">체크리스트</label>
+    <select id="logChecklistSelect">${clOptions}</select>
     <label class="field-label">점검자 성명</label>
     <input type="text" id="lgInspector" placeholder="작성자 이름 입력">
     <label class="field-label">소속 / 직책</label>
@@ -847,9 +885,155 @@ function tabLog(){
     <input type="file" id="lgPhotos" accept="image/*" capture="environment" multiple style="display:none;">
     <div class="photo-preview-row">${photoPreviewHtml}</div>
     <button class="btn-primary" id="btnSubmitLog">점검 결과 저장</button>
-    <div class="section-label">점검 이력</div>
-    ${logHtml}
+    <button class="btn-secondary" id="btnViewHistory">📋 점검 이력 보기 (총 ${logCount}건)</button>
   `;
+}
+ 
+/* ---- 점검 이력 보기 모달 (연도별 필터 + 수정/삭제) ---- */
+let historyYearFilter = '전체';
+function openLogHistoryModal(itemId, checklistId){
+  const items = state.itemsCache[state.bizId] || [];
+  const item = items.find(i=>i.id===itemId);
+  const checklist = item ? ensureChecklists(item).find(cl=>cl.id===checklistId) : null;
+  historyYearFilter = '전체';
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `
+    <div class="modal" style="max-height:90vh;">
+      <h3>${esc(item ? item.name : '')}${checklist ? ' · '+esc(checklist.name) : ''} 점검 이력</h3>
+      <label class="field-label">연도 필터</label>
+      <select id="historyYearSel"></select>
+      <div id="historyListArea"></div>
+      <div class="modal-actions">
+        <button class="cancel" id="mClose" style="width:100%;">닫기</button>
+      </div>
+    </div>`;
+  document.body.appendChild(bg);
+  bg.querySelector('#mClose').onclick = ()=> bg.remove();
+
+  function renderList(){
+    const allLogs = (state.logsCache[state.bizId]||[]).filter(l=>l.itemId===itemId && (l.checklistId===checklistId || (!l.checklistId && checklistId==='legacy'))).sort((a,b)=>b.ts-a.ts);
+    const years = Array.from(new Set(allLogs.map(l=>new Date(l.ts).getFullYear()))).sort((a,b)=>b-a);
+    const yearSel = bg.querySelector('#historyYearSel');
+    yearSel.innerHTML = `<option value="전체">전체 (${allLogs.length}건)</option>` +
+      years.map(y=>{
+        const cnt = allLogs.filter(l=>new Date(l.ts).getFullYear()===y).length;
+        return `<option value="${y}" ${String(y)===historyYearFilter?'selected':''}>${y}년 (${cnt}건)</option>`;
+      }).join('');
+    yearSel.value = historyYearFilter;
+
+    const filtered = historyYearFilter === '전체' ? allLogs : allLogs.filter(l=>String(new Date(l.ts).getFullYear())===historyYearFilter);
+    const area = bg.querySelector('#historyListArea');
+    area.innerHTML = filtered.map(l=>`
+      <div class="log-item">
+        <div class="log-top"><span class="log-name">${esc(l.inspector)}${l.department? ' · '+esc(l.department):''}</span><span class="chip ${l.status}">${l.status}</span></div>
+        <div class="log-meta">${fmt(l.ts)}</div>
+        <div class="log-content">${esc(l.content) || '-'}</div>
+        ${l.photos && l.photos.length ? `<div class="log-photos">${l.photos.map(p=>`<img src="${p}" data-full="${p}">`).join('')}</div>` : ''}
+        ${isAdmin() ? `
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <button class="edit-btn" data-editlog="${l.id}">수정</button>
+          <button class="edit-btn" data-dellog="${l.id}" style="color:var(--bad); border-color:var(--bad);">삭제</button>
+        </div>` : ''}
+      </div>
+    `).join('') || `<div class="empty">해당 연도의 점검 이력이 없습니다.</div>`;
+
+    area.querySelectorAll('.log-photos img').forEach(el=>{
+      el.onclick = ()=>{ const w = window.open(); if(w) w.document.write('<img src="'+el.dataset.full+'" style="max-width:100%;">'); };
+    });
+    area.querySelectorAll('[data-editlog]').forEach(el=>{
+      el.onclick = ()=>{
+        const log = allLogs.find(l=>l.id===el.dataset.editlog);
+        if(log) openLogEditModal(log, renderList);
+      };
+    });
+    area.querySelectorAll('[data-dellog]').forEach(el=>{
+      el.onclick = async ()=>{
+        if(!(await customConfirm('이 점검 이력을 삭제하시겠습니까? 되돌릴 수 없습니다.'))) return;
+        try{
+          await deleteLog(state.bizId, el.dataset.dellog);
+          state.logsCache[state.bizId] = (state.logsCache[state.bizId]||[]).filter(l=>l.id!==el.dataset.dellog);
+          renderList();
+          render();
+        }catch(e){ showToast('삭제 중 오류가 발생했습니다: ' + (e && e.message ? e.message : e)); }
+      };
+    });
+  }
+  bg.querySelector('#historyYearSel').onchange = (ev)=>{ historyYearFilter = ev.target.value; renderList(); };
+  renderList();
+}
+
+function openLogEditModal(log, onSaved){
+  editPendingPhotos = (log.photos||[]).slice();
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.style.zIndex = '35';
+  bg.innerHTML = `
+    <div class="modal">
+      <h3>점검 이력 수정</h3>
+      <label class="field-label">점검자 성명</label>
+      <input type="text" id="elInspector" value="${esc(log.inspector||'')}">
+      <label class="field-label">소속 / 직책</label>
+      <input type="text" id="elDept" value="${esc(log.department||'')}">
+      <label class="field-label">점검 상태</label>
+      <select id="elStatus">
+        <option value="양호" ${log.status==='양호'?'selected':''}>양호 (정상 작동)</option>
+        <option value="보통" ${log.status==='보통'?'selected':''}>보통 (경미한 이상)</option>
+        <option value="불량" ${log.status==='불량'?'selected':''}>불량 (즉시 조치 필요)</option>
+      </select>
+      <label class="field-label">점검 내용 및 조치 사항</label>
+      <textarea id="elContent">${esc(log.content||'')}</textarea>
+      <label class="field-label">현장 사진 (최대 3장)</label>
+      <label class="photo-input-btn" for="elPhotos">📷 사진 추가</label>
+      <input type="file" id="elPhotos" accept="image/*" capture="environment" multiple style="display:none;">
+      <div class="photo-preview-row" id="elPhotoPreview"></div>
+      <div class="modal-actions">
+        <button class="cancel" id="mCancel">취소</button>
+        <button class="confirm" id="mSave">저장</button>
+      </div>
+    </div>`;
+  document.body.appendChild(bg);
+
+  function renderPhotoPreview(){
+    bg.querySelector('#elPhotoPreview').innerHTML = editPendingPhotos.map((p,idx)=>`
+      <div class="photo-thumb"><img src="${p}"><button class="rm" data-elrmphoto="${idx}">×</button></div>
+    `).join('');
+    bg.querySelectorAll('[data-elrmphoto]').forEach(el=>{
+      el.onclick = ()=>{ editPendingPhotos.splice(parseInt(el.dataset.elrmphoto,10),1); renderPhotoPreview(); };
+    });
+  }
+  renderPhotoPreview();
+
+  bg.querySelector('#elPhotos').onchange = async (ev)=>{
+    const files = Array.from(ev.target.files || []);
+    for(const f of files){
+      if(editPendingPhotos.length >= 3){ showToast('사진은 최대 3장까지 첨부할 수 있습니다.'); break; }
+      try{ const dataUrl = await fileToCompressedDataUrl(f); editPendingPhotos.push(dataUrl); }
+      catch(e){ showToast('사진을 처리하는 중 오류가 발생했습니다.'); }
+    }
+    renderPhotoPreview();
+  };
+
+  bg.querySelector('#mCancel').onclick = ()=> bg.remove();
+  bg.querySelector('#mSave').onclick = async ()=>{
+    const inspector = bg.querySelector('#elInspector').value.trim();
+    if(!inspector){ showToast('점검자 성명을 입력하세요.'); return; }
+    const updated = Object.assign({}, log, {
+      inspector,
+      department: bg.querySelector('#elDept').value.trim(),
+      status: bg.querySelector('#elStatus').value,
+      content: normalizeBreaks(bg.querySelector('#elContent').value).trim(),
+      photos: editPendingPhotos.slice()
+    });
+    const arr = state.logsCache[state.bizId] || [];
+    const idx = arr.findIndex(l=>l.id===log.id);
+    if(idx > -1) arr[idx] = updated;
+    bg.remove();
+    try{ await addLog(state.bizId, updated); }
+    catch(e){ showToast('저장 중 오류가 발생했습니다: ' + (e && e.message ? e.message : e)); }
+    if(onSaved) onSaved();
+    render();
+  };
 }
  
 /* ---- 탭4: 현황(대시보드) ---- */
@@ -857,14 +1041,19 @@ function tabDash(){
   const items = state.itemsCache[state.bizId] || [];
   const logs = state.logsCache[state.bizId] || [];
  
-  const withStatus = items.map(it=>({item:it, st:inspectionStatus(it, logs)}));
-  const overdue = withStatus.filter(x=>x.st.state==='기한초과' || x.st.state==='미점검');
-  const soon = withStatus.filter(x=>x.st.state==='임박');
-  const normal = withStatus.filter(x=>x.st.state==='정상');
-  const noCycle = withStatus.filter(x=>x.st.state==='미설정');
+  const rows = [];
+  items.forEach(it=>{
+    ensureChecklists(it).forEach(cl=>{
+      rows.push({ item: it, checklist: cl, st: inspectionStatus(it.id, cl, logs) });
+    });
+  });
+  const overdue = rows.filter(x=>x.st.state==='기한초과' || x.st.state==='미점검');
+  const soon = rows.filter(x=>x.st.state==='임박');
+  const normal = rows.filter(x=>x.st.state==='정상');
+  const noCycle = rows.filter(x=>x.st.state==='미설정');
  
   const listHtml = (arr)=> arr.length ? arr.map(x=>{
-    let sub = x.item.location||'위치 미입력';
+    let sub = (x.item.location||'위치 미입력') + ' · ' + x.checklist.name;
     if(x.st.dueTs) sub += ' · 다음 점검 ' + fmtDate(x.st.dueTs);
     else if(x.st.lastTs) sub += ' · 최근 점검 ' + fmtDate(x.st.lastTs);
     return `
@@ -878,7 +1067,7 @@ function tabDash(){
   // 매일/주간/월간 등 주기별로 나눠서 보여준다.
   const cycleGroups = {};
   normal.forEach(x=>{
-    const label = cycleLabel(x.item.cycleDays);
+    const label = cycleLabel(x.checklist.cycleDays);
     if(!cycleGroups[label]) cycleGroups[label] = [];
     cycleGroups[label].push(x);
   });
@@ -919,12 +1108,14 @@ function exportCsv(){
   const biz = state.businesses.find(b=>b.id===state.bizId);
   const items = state.itemsCache[state.bizId] || [];
   const logs = state.logsCache[state.bizId] || [];
-  const rows = [['사업체','설비명','위치','점검주기','점검일시','점검자','소속/직책','상태','내용']];
+  const rows = [['사업체','설비명','체크리스트','위치','점검주기','점검일시','점검자','소속/직책','상태','내용']];
   logs.slice().sort((a,b)=>a.ts-b.ts).forEach(l=>{
     const item = items.find(i=>i.id===l.itemId);
+    const checklists = item ? ensureChecklists(item) : [];
+    const cl = checklists.find(c=>c.id===l.checklistId) || (l.checklistId ? null : checklists.find(c=>c.id==='legacy')) || null;
     rows.push([
-      biz ? biz.name : '', item ? item.name : l.itemName, item ? (item.location||'') : '',
-      item ? cycleLabel(item.cycleDays) : '', fmt(l.ts), l.inspector, l.department||'', l.status, (l.content||'').replace(/\n/g,' ')
+      biz ? biz.name : '', item ? item.name : l.itemName, cl ? cl.name : '', item ? (item.location||'') : '',
+      cl ? cycleLabel(cl.cycleDays) : '', fmt(l.ts), l.inspector, l.department||'', l.status, (l.content||'').replace(/\n/g,' ')
     ]);
   });
   const csv = rows.map(r => r.map(cell=>{
@@ -1004,7 +1195,9 @@ function attachTabHandlers(){
   }
   if(state.workspaceTab === 'log'){
     const sel = document.getElementById('logItemSelect');
-    if(sel) sel.onchange = ()=>{ state.selectedItemId = sel.value; render(); };
+    if(sel) sel.onchange = ()=>{ state.selectedItemId = sel.value; state.selectedChecklistId = null; render(); };
+    const clSel = document.getElementById('logChecklistSelect');
+    if(clSel) clSel.onchange = ()=>{ state.selectedChecklistId = clSel.value; render(); };
     const statusSel = document.getElementById('lgStatus');
     if(statusSel) statusSel.onchange = ()=>{ logSelectedStatus = statusSel.value; };
     const submitBtn = document.getElementById('btnSubmitLog');
@@ -1022,9 +1215,8 @@ function attachTabHandlers(){
     app.querySelectorAll('[data-rmphoto]').forEach(el=>{
       el.onclick = ()=>{ pendingPhotos.splice(parseInt(el.dataset.rmphoto,10), 1); render(); };
     });
-    app.querySelectorAll('.log-photos img').forEach(el=>{
-      el.onclick = ()=>{ const w = window.open(); if(w) w.document.write('<img src="'+el.dataset.full+'" style="max-width:100%;">'); };
-    });
+    const historyBtn = document.getElementById('btnViewHistory');
+    if(historyBtn) historyBtn.onclick = ()=> openLogHistoryModal(state.selectedItemId, state.selectedChecklistId);
   }
   if(state.workspaceTab === 'dash'){
     const csvBtn = document.getElementById('btnExportCsv');
@@ -1037,7 +1229,7 @@ function attachTabHandlers(){
 async function submitLog(){
   const inspector = document.getElementById('lgInspector').value.trim();
   const department = document.getElementById('lgDept').value.trim();
-  const content = document.getElementById('lgContent').value.trim();
+  const content = normalizeBreaks(document.getElementById('lgContent').value).trim();
   const status = document.getElementById('lgStatus').value;
   if(!inspector){ showToast('점검자 성명을 입력하세요.'); return; }
   if(!status){ showToast('점검 상태를 선택하세요.'); return; }
@@ -1099,10 +1291,32 @@ const CYCLE_PRESETS = [
   {v:'365', label:'연간(365일)'},
   {v:'custom', label:'직접 입력(일 단위)'}
 ];
+function checklistRowHtml(presetValues, row){
+  const cyStr = row.cycleDays ? String(row.cycleDays) : '';
+  const isCustom = cyStr && !presetValues.includes(cyStr);
+  return `
+    <div class="checklist-row" data-clid="${esc(row.id||'')}" style="border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:8px;">
+      <div style="display:flex; gap:8px; align-items:flex-start;">
+        <div style="flex:1; min-width:0;">
+          <input type="text" class="clName" placeholder="예: 필터 청소 점검" value="${esc(row.name||'')}" style="margin-bottom:8px;">
+          <div class="cycle-row">
+            <select class="clCycleSel">
+              ${CYCLE_PRESETS.map(p=>`<option value="${p.v}" ${(isCustom && p.v==='custom') || (!isCustom && p.v===cyStr) ? 'selected':''}>${p.label}</option>`).join('')}
+            </select>
+            <input type="text" class="clCycleCustom" placeholder="예: 45" inputmode="numeric"
+              value="${isCustom ? esc(cyStr) : ''}"
+              style="${isCustom ? '' : 'display:none;'}">
+          </div>
+        </div>
+        <button type="button" class="edit-btn clRemoveBtn" style="color:var(--bad); border-color:var(--bad); flex:none;">삭제</button>
+      </div>
+    </div>`;
+}
 function openItemModal(existing){
   const presetValues = ['1','7','14','30','90','180','365'];
-  const existingCycle = existing && existing.cycleDays ? String(existing.cycleDays) : '';
-  const isCustomCycle = existingCycle && !presetValues.includes(existingCycle);
+  const initialChecklists = existing
+    ? ensureChecklists(existing).map(cl=>({id:cl.id, name:cl.name, cycleDays:cl.cycleDays||null}))
+    : [{id:null, name:'', cycleDays:null}];
   const bg = document.createElement('div');
   bg.className='modal-bg';
   bg.innerHTML = `
@@ -1112,23 +1326,17 @@ function openItemModal(existing){
       <input type="text" id="itName" placeholder="예: 자동 핀세터 (BES-X)" value="${existing ? esc(existing.name) : ''}">
       <label class="field-label">위치 / 모델</label>
       <input type="text" id="itLoc" placeholder="예: 1층 볼링장 후면" value="${existing ? esc(existing.location||'') : ''}">
-      <label class="field-label">점검 주기</label>
-      <div class="cycle-row">
-        <select id="itCycle">
-          ${CYCLE_PRESETS.map(p=>`<option value="${p.v}" ${(isCustomCycle && p.v==='custom') || (!isCustomCycle && p.v===existingCycle) ? 'selected':''}>${p.label}</option>`).join('')}
-        </select>
-        <input type="text" id="itCycleCustom" placeholder="예: 45" inputmode="numeric"
-          value="${isCustomCycle ? esc(existingCycle) : ''}"
-          style="${isCustomCycle ? '' : 'display:none;'}">
-      </div>
-      <label class="field-label">항목별 매뉴얼 / 점검 방법</label>
-      <textarea id="itManual" placeholder="이 설비의 점검 방법, 유의사항 등을 입력하세요.">${existing ? esc(existing.manual||'') : ''}</textarea>
+      <label class="field-label">점검 체크리스트 <span style="font-weight:400; color:var(--slate);">(같은 설비에 주기가 다른 점검을 여러 개 등록할 수 있어요)</span></label>
+      <div id="checklistArea"></div>
+      <button type="button" class="btn-secondary" id="btnAddChecklist" style="margin-top:0;">+ 체크리스트 추가</button>
+      <label class="field-label" style="margin-top:18px;">항목별 매뉴얼 / 점검 방법</label>
+      <textarea id="itManual" placeholder="이 설비의 점검 방법, 유의사항 등을 입력하세요.">${existing ? esc(normalizeBreaks(existing.manual||'')) : ''}</textarea>
       <label class="field-label">법적 근거 / 점검 기준 (선택)</label>
-      <textarea id="itLegal" placeholder="예: 소방시설법 제20조, 승강기 안전관리법 시행규칙 별표3 등">${existing ? esc(existing.legalBasis||'') : ''}</textarea>
+      <textarea id="itLegal" placeholder="예: 소방시설법 제20조, 승강기 안전관리법 시행규칙 별표3 등">${existing ? esc(normalizeBreaks(existing.legalBasis||'')) : ''}</textarea>
       <label class="field-label">영상 매뉴얼 링크 (선택, 유튜브 등)</label>
       <input type="text" id="itVideo" placeholder="https://youtube.com/..." value="${existing ? esc(existing.videoUrl||'') : ''}">
       <label class="field-label">비상 대응 플로우차트 (한 줄에 한 단계씩 입력)</label>
-      <textarea id="itFlow" placeholder="이상 발생 시 즉시 전원 차단&#10;차단기 및 바이패스 밸브 확인&#10;모바일 점검 로그 작성 및 A/S 접수">${existing && existing.flowSteps ? esc(existing.flowSteps.join(String.fromCharCode(10))) : ''}</textarea>
+      <textarea id="itFlow" placeholder="이상 발생 시 즉시 전원 차단&#10;차단기 및 바이패스 밸브 확인&#10;모바일 점검 로그 작성 및 A/S 접수">${existing && existing.flowSteps ? esc(normalizeBreaks(existing.flowSteps.join(String.fromCharCode(10)))) : ''}</textarea>
       <div class="modal-actions">
         ${existing ? `<button class="cancel" id="mDelete" style="background:#FBEAE8;color:var(--bad);">삭제</button>` : ''}
         <button class="cancel" id="mCancel">취소</button>
@@ -1136,9 +1344,29 @@ function openItemModal(existing){
       </div>
     </div>`;
   document.body.appendChild(bg);
-  const cycleSel = bg.querySelector('#itCycle');
-  const cycleCustom = bg.querySelector('#itCycleCustom');
-  cycleSel.onchange = ()=>{ cycleCustom.style.display = cycleSel.value === 'custom' ? '' : 'none'; };
+
+  const checklistArea = bg.querySelector('#checklistArea');
+  function wireChecklistRow(rowEl){
+    const sel = rowEl.querySelector('.clCycleSel');
+    const custom = rowEl.querySelector('.clCycleCustom');
+    sel.onchange = ()=>{ custom.style.display = sel.value === 'custom' ? '' : 'none'; };
+    rowEl.querySelector('.clRemoveBtn').onclick = ()=>{
+      if(checklistArea.querySelectorAll('.checklist-row').length <= 1){
+        showToast('체크리스트는 최소 1개 이상 있어야 합니다.');
+        return;
+      }
+      rowEl.remove();
+    };
+  }
+  initialChecklists.forEach(row=>{
+    checklistArea.insertAdjacentHTML('beforeend', checklistRowHtml(presetValues, row));
+  });
+  checklistArea.querySelectorAll('.checklist-row').forEach(wireChecklistRow);
+  bg.querySelector('#btnAddChecklist').onclick = ()=>{
+    checklistArea.insertAdjacentHTML('beforeend', checklistRowHtml(presetValues, {id:null, name:'', cycleDays:null}));
+    wireChecklistRow(checklistArea.lastElementChild);
+  };
+
   bg.querySelector('#mCancel').onclick = ()=> bg.remove();
   if(existing){
     const delBtn = bg.querySelector('#mDelete');
@@ -1149,7 +1377,7 @@ function openItemModal(existing){
         const items = state.itemsCache[state.bizId] || [];
         state.itemsCache[state.bizId] = items.filter(i=>i.id!==existing.id);
         state.logsCache[state.bizId] = (state.logsCache[state.bizId]||[]).filter(l=>l.itemId!==existing.id);
-        if(state.selectedItemId === existing.id) state.selectedItemId = null;
+        if(state.selectedItemId === existing.id){ state.selectedItemId = null; state.selectedChecklistId = null; }
         bg.remove();
         state.workspaceTab = 'qr';
         render();
@@ -1160,26 +1388,42 @@ function openItemModal(existing){
     const name = bg.querySelector('#itName').value.trim();
     if(!name){ showToast('설비명을 입력하세요.'); return; }
     const location = bg.querySelector('#itLoc').value.trim();
-    const manual = bg.querySelector('#itManual').value.trim();
-    const legalBasis = bg.querySelector('#itLegal').value.trim();
+    const manual = normalizeBreaks(bg.querySelector('#itManual').value).trim();
+    const legalBasis = normalizeBreaks(bg.querySelector('#itLegal').value).trim();
     const videoUrl = bg.querySelector('#itVideo').value.trim();
-    const flowSteps = bg.querySelector('#itFlow').value.split(String.fromCharCode(10)).map(s=>s.trim()).filter(Boolean);
-    let cycleDays = null;
-    if(cycleSel.value === 'custom'){
-      const n = parseInt(cycleCustom.value, 10);
-      if(!isNaN(n) && n > 0) cycleDays = n;
-    }else if(cycleSel.value){
-      cycleDays = parseInt(cycleSel.value, 10);
-    }
+    const flowSteps = normalizeBreaks(bg.querySelector('#itFlow').value).split(String.fromCharCode(10)).map(s=>s.trim()).filter(Boolean);
+
+    const checklists = [];
+    checklistArea.querySelectorAll('.checklist-row').forEach(rowEl=>{
+      const clName = rowEl.querySelector('.clName').value.trim();
+      if(!clName) return;
+      const cySel = rowEl.querySelector('.clCycleSel');
+      const cyCustom = rowEl.querySelector('.clCycleCustom');
+      let cycleDays = null;
+      if(cySel.value === 'custom'){
+        const n = parseInt(cyCustom.value, 10);
+        if(!isNaN(n) && n > 0) cycleDays = n;
+      }else if(cySel.value){
+        cycleDays = parseInt(cySel.value, 10);
+      }
+      const existingId = rowEl.dataset.clid;
+      checklists.push({ id: existingId || uid(), name: clName, cycleDays });
+    });
+    if(!checklists.length){ showToast('체크리스트 이름을 최소 1개 입력하세요.'); return; }
+
     if(!state.itemsCache[state.bizId]) state.itemsCache[state.bizId] = [];
     let itemToSave;
     if(existing){
-      Object.assign(existing, {name, location, manual, legalBasis, videoUrl, flowSteps, cycleDays});
+      Object.assign(existing, {name, location, manual, legalBasis, videoUrl, flowSteps, checklists});
+      delete existing.cycleDays;
       itemToSave = existing;
     }else{
-      itemToSave = {id:uid(), name, location, manual, legalBasis, videoUrl, flowSteps, cycleDays};
+      itemToSave = {id:uid(), name, location, manual, legalBasis, videoUrl, flowSteps, checklists};
       state.itemsCache[state.bizId].push(itemToSave);
       state.selectedItemId = itemToSave.id;
+    }
+    if(state.selectedItemId === itemToSave.id && !checklists.find(cl=>cl.id===state.selectedChecklistId)){
+      state.selectedChecklistId = checklists[0].id;
     }
     bg.remove();
     state.workspaceTab = 'manual';
