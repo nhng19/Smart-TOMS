@@ -453,6 +453,11 @@
     background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.22);
     border-radius:10px; backdrop-filter:blur(8px); font-weight:700;
   }
+  header.topbar .qr-lock-badge{
+    display:inline-flex; align-items:center; gap:5px; white-space:nowrap;
+    padding:6px 11px; border-radius:var(--r-pill); font-size:12px; font-weight:800; color:#fff;
+    background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.24); backdrop-filter:blur(8px);
+  }
 
   /* ---- 카드 ---- */
   .card{
@@ -590,7 +595,9 @@ const state = {
   logsCache: {},
   appSettings: {},
   cloudReady: false,      // Firebase 연결 성공 여부
-  user: null              // 로그인한 관리자 (Firebase Auth User) 또는 null
+  user: null,             // 로그인한 관리자 (Firebase Auth User) 또는 null
+  qrLock: false,          // QR로 진입한 세션 여부 (true면 해당 사업장에 잠금)
+  lockedBizId: null       // QR 잠금 상태에서 허용된 사업장 ID
 };
 
 /* ---------------- 클라우드(Firebase) 연결 설정 ----------------
@@ -1135,8 +1142,11 @@ function renderWorkspace(){
   else if(state.workspaceTab === 'log') mainHtml = tabLog();
   else mainHtml = tabDash();
  
+  const rightHtml = state.qrLock
+    ? `<span class="qr-lock-badge">🔒 현장 QR</span>`
+    : (isAdmin() ? `<button id="btnBizSettings">⚙ 설정</button>` : '');
   app.innerHTML = `
-    ${headerBlock(biz.name, '스마트 시설물 유지관리 시스템', true, isAdmin() ? `<button id="btnBizSettings">⚙ 설정</button>` : '')}
+    ${headerBlock(biz.name, state.qrLock ? '현장 QR 점검 세션' : '스마트 시설물 유지관리 시스템', !state.qrLock, rightHtml)}
     <main>${mainHtml}</main>
     <nav class="bottom">
       <button id="navQr" class="${state.workspaceTab==='qr'?'active':''}"><span class="ic">▦</span>QR/설비</button>
@@ -1145,7 +1155,8 @@ function renderWorkspace(){
       <button id="navDash" class="${state.workspaceTab==='dash'?'active':''}"><span class="ic">📊</span>현황</button>
     </nav>
   `;
-  document.getElementById('btnBack').onclick = ()=>{ state.screen='home'; state.bizId=null; render(); };
+  const backBtn = document.getElementById('btnBack');
+  if(backBtn) backBtn.onclick = ()=>{ state.screen='home'; state.bizId=null; render(); };
   document.getElementById('navQr').onclick = ()=>{ state.workspaceTab='qr'; render(); };
   document.getElementById('navManual').onclick = ()=>{ state.workspaceTab='manual'; render(); };
   document.getElementById('navLog').onclick = ()=>{ state.workspaceTab='log'; render(); };
@@ -1684,6 +1695,10 @@ function attachTabHandlers(){
 }
  
 async function submitLog(){
+  if(state.qrLock && state.bizId !== state.lockedBizId){
+    showToast('현장 QR 세션에서는 해당 사업장의 점검일지만 작성할 수 있습니다.');
+    return;
+  }
   const inspector = document.getElementById('lgInspector').value.trim();
   const department = document.getElementById('lgDept').value.trim();
   const content = normalizeBreaks(document.getElementById('lgContent').value).trim();
@@ -2035,6 +2050,8 @@ async function handleScanResult(code){
   const itemId = params.get('item');
   if(bizId && itemId && state.businesses.find(b=>b.id===bizId)){
     state.bizId = bizId;
+    state.qrLock = true;          // QR로 진입 → 이 사업장에 잠금
+    state.lockedBizId = bizId;
     await loadItems(bizId);
     await loadLogs(bizId);
     const item = (state.itemsCache[bizId]||[]).find(i=>i.id===itemId);
