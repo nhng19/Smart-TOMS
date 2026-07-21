@@ -457,6 +457,7 @@
     display:inline-flex; align-items:center; gap:5px; white-space:nowrap;
     padding:6px 11px; border-radius:var(--r-pill); font-size:12px; font-weight:800; color:#fff;
     background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.24); backdrop-filter:blur(8px);
+    cursor:pointer;
   }
 
   /* ---- 카드 ---- */
@@ -1143,7 +1144,7 @@ function renderWorkspace(){
   else mainHtml = tabDash();
  
   const rightHtml = state.qrLock
-    ? `<span class="qr-lock-badge">🔒 현장 QR</span>`
+    ? `<button id="btnQrUnlock" class="qr-lock-badge">🔒 현장 QR</button>`
     : (isAdmin() ? `<button id="btnBizSettings">⚙ 설정</button>` : '');
   app.innerHTML = `
     ${headerBlock(biz.name, state.qrLock ? '현장 QR 점검 세션' : '스마트 시설물 유지관리 시스템', !state.qrLock, rightHtml)}
@@ -1163,6 +1164,14 @@ function renderWorkspace(){
   document.getElementById('navDash').onclick = ()=>{ state.workspaceTab='dash'; render(); };
   const bizSettingsBtn = document.getElementById('btnBizSettings');
   if(bizSettingsBtn) bizSettingsBtn.onclick = ()=> openBizModal(biz);
+  const qrUnlockBtn = document.getElementById('btnQrUnlock');
+  if(qrUnlockBtn) qrUnlockBtn.onclick = ()=>{
+    const cloudFieldUser = state.cloudReady && !(state.user && !state.user.isAnonymous);
+    if(cloudFieldUser){ showToast('현장 QR 세션은 관리자만 해제할 수 있습니다.'); return; }
+    customConfirm('현장 QR 세션을 종료하고 사업장 목록으로 나갈까요?', '세션 종료').then(ok=>{
+      if(ok){ state.qrLock = false; state.lockedBizId = null; state.screen = 'home'; state.bizId = null; render(); }
+    });
+  };
  
   attachTabHandlers();
 }
@@ -2022,6 +2031,8 @@ async function handleScanResult(code){
   if(bizId !== state.bizId){ showToast('현재 사업체의 QR이 아닙니다.'); return; }
   const item = (state.itemsCache[state.bizId]||[]).find(i=>i.id===itemId);
   if(!item){ showToast('등록되지 않은 점검 항목입니다.'); return; }
+  state.qrLock = true;                 // 앱 내 스캐너로 진입해도 해당 사업장에 잠금
+  state.lockedBizId = state.bizId;
   state.selectedItemId = itemId;
   state.workspaceTab = 'manual';
   render();
